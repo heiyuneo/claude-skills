@@ -32,51 +32,50 @@
 会诊一下 src/sync/ 这段并发写入，有没有我没看到的竞态
 ```
 
-## 装
+## 装（两分钟，三步）
 
-### 1. 装 `llm` CLI
+### 1. 先拿一个 Ollama key
+
+打开 <https://ollama.com/settings/keys>，登录后点 **Create key**，复制出来备用。
+
+⚠️ **必须用你自己的 key。** ollama 是按量计费的，谁的 key 谁付钱，别问别人要。
+
+### 2. 复制这一整段贴进终端
+
+把最后一行的 `把你的key贴这里` 换成上一步复制的 key，然后整段一起跑：
 
 ```bash
-uv tool install llm      # 或： pipx install llm     # 或： brew install llm
+# 装 llm CLI
+uv tool install llm                 # 没有 uv 就用： brew install llm
+
+# 下载模型别名配置（告诉 llm 那五个模型叫什么、去哪找）
+mkdir -p "$(dirname "$(llm logs path)")"
+curl -fsSL https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/extra-openai-models.yaml \
+  -o "$(dirname "$(llm logs path)")/extra-openai-models.yaml"
+
+# 存 key
+echo 'export OLLAMA_API_KEY=把你的key贴这里' >> ~/.zshenv && chmod 600 ~/.zshenv
+source ~/.zshenv
 ```
 
-### 2. 加这个 marketplace 并装 plugin
+⚠️ **key 要写进 `.zshenv`，不是 `.zshrc`。** Claude Code 每次执行命令都新开一个非交互
+shell，而 zsh 非交互模式只读 `.zshenv`。写进 `.zshrc` 的症状特别阴：你在终端里手敲验证
+命令能通，但 skill 一跑就报 `OLLAMA_API_KEY 未设置` 然后停——很容易查半天。
 
-在 Claude Code 里：
+跑完当场验一下，出一句话就说明 key、端点、模型三样都对了：
+
+```bash
+NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "用一句话说说你是谁"
+```
+
+### 3. 在 Claude Code 里装 plugin
 
 ```
 /plugin marketplace add heiyuneo/claude-skills
 /plugin install panel@heiyu-claude-skills
 ```
 
-### 3. 放模型别名配置
-
-```bash
-git clone https://github.com/heiyuneo/claude-skills.git /tmp/claude-skills
-cp /tmp/claude-skills/setup/extra-openai-models.yaml "$(dirname "$(llm logs path)")/"
-```
-
-（这一步没法跟着 plugin 走——`llm` 的配置目录不归 Claude Code 管。）
-
-### 4. 各自申请自己的 key
-
-去 <https://ollama.com> 注册拿 key，**按量计费，走各人自己的账**：
-
-```bash
-echo 'export OLLAMA_API_KEY=你自己的key' >> ~/.zshenv && chmod 600 ~/.zshenv
-```
-
-⚠️ **是 `.zshenv`，不是 `.zshrc`。** Claude Code 每次执行命令都新开一个非交互 shell，
-而 zsh 非交互模式只读 `.zshenv`。写进 `.zshrc` 的话，你在终端里手敲验证命令会通，
-但 skill 一跑就报 `OLLAMA_API_KEY 未设置` 然后停——很容易查半天。
-
-### 5. 验
-
-```bash
-NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "用一句话说说你是谁"
-```
-
-出一句话就成了。重开 Claude Code，说「会诊」试试。
+重开 Claude Code，说一句「会诊一下 xxx」试试。
 
 ## 三个坑
 

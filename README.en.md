@@ -38,54 +38,52 @@ before launch, a technology choice you'll live with for a year.
 Don't use it for naming things, writing a utility function, or anything where you already
 have an answer and just want agreement. That last one only buys you a fake consensus.
 
-## Install
+## Install (two minutes, three steps)
 
-### 1. Install the `llm` CLI
+### 1. Get an Ollama key first
+
+Go to <https://ollama.com/settings/keys>, sign in, hit **Create key**, copy it.
+
+⚠️ **Bring your own.** Ollama Cloud is metered and bills to whoever's key it is. Don't
+borrow someone else's.
+
+### 2. Paste this whole block into a terminal
+
+Replace `paste-your-key-here` on the last line with the key from step 1, then run the lot:
 
 ```bash
-uv tool install llm      # or: pipx install llm     # or: brew install llm
+# install the llm CLI
+uv tool install llm                 # no uv? use: brew install llm
+
+# fetch the model aliases (tells llm what the five models are called and where to find them)
+mkdir -p "$(dirname "$(llm logs path)")"
+curl -fsSL https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/extra-openai-models.yaml \
+  -o "$(dirname "$(llm logs path)")/extra-openai-models.yaml"
+
+# store the key
+echo 'export OLLAMA_API_KEY=paste-your-key-here' >> ~/.zshenv && chmod 600 ~/.zshenv
+source ~/.zshenv
 ```
 
-### 2. Add the marketplace and install the plugin
+⚠️ **The key goes in `.zshenv`, not `.zshrc`.** Claude Code spawns a fresh non-interactive
+shell for every command, and non-interactive zsh only reads `.zshenv`. Put it in `.zshrc`
+and the check below will pass when you type it yourself, but the skill will bail with
+`OLLAMA_API_KEY 未设置` the moment it runs — a genuinely annoying half hour to debug.
 
-In Claude Code:
+Check it right away. One sentence back means key, endpoint and model are all correct:
+
+```bash
+NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "Introduce yourself in one sentence."
+```
+
+### 3. Install the plugin in Claude Code
 
 ```
 /plugin marketplace add heiyuneo/claude-skills
 /plugin install panel@heiyu-claude-skills
 ```
 
-### 3. Register the model aliases
-
-```bash
-git clone https://github.com/heiyuneo/claude-skills.git /tmp/claude-skills
-cp /tmp/claude-skills/setup/extra-openai-models.yaml "$(dirname "$(llm logs path)")/"
-```
-
-This step can't ride along with the plugin — `llm` keeps its config outside anything
-Claude Code manages.
-
-### 4. Bring your own API key
-
-Get one at <https://ollama.com>. **It's metered, and it bills to your account:**
-
-```bash
-echo 'export OLLAMA_API_KEY=your-key-here' >> ~/.zshenv && chmod 600 ~/.zshenv
-```
-
-⚠️ **`.zshenv`, not `.zshrc`.** Claude Code spawns a fresh non-interactive shell for every
-command, and non-interactive zsh only reads `.zshenv`. Put the key in `.zshrc` and the
-verification command below will work when you type it into your terminal, but the skill
-will bail with `OLLAMA_API_KEY 未设置` the moment it runs — a genuinely annoying half hour
-to debug.
-
-### 5. Verify
-
-```bash
-NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "Introduce yourself in one sentence."
-```
-
-One sentence back means you're set. Restart Claude Code and say "panel".
+Restart Claude Code and say "panel this: ...".
 
 ## Three things that will bite you
 
