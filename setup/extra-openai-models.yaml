@@ -31,12 +31,14 @@
   api_base: "https://api.deepseek.com/v1"
   api_key_name: deepseek
   reasoning: true
+  supports_tools: true
 
 - model_id: nemotron
   model_name: nemotron-3-ultra
   api_base: "https://ollama.com/v1"
   api_key_name: ollama
   reasoning: true
+  supports_tools: true
 
 # Routed to Zhipu's own API: it carries glm-5.3, one release ahead of the gateway's 5.2.
 # The docs call this endpoint non-OpenAI-compatible; in practice the OpenAI request shape
@@ -46,15 +48,18 @@
   api_base: "https://open.bigmodel.cn/api/paas/v4"
   api_key_name: zhipu
   reasoning: true
+  supports_tools: true
 
 - model_id: kimi
   model_name: kimi-k2.7-code
   api_base: "https://ollama.com/v1"
   api_key_name: ollama
   reasoning: true
+  supports_tools: true
 
 - model_id: minimax
   model_name: minimax-m3
   api_base: "https://ollama.com/v1"
   api_key_name: ollama
   reasoning: true
+  supports_tools: true

@@ -53,10 +53,11 @@ borrow someone else's.
 # install the llm CLI
 uv tool install llm                 # no uv? use: brew install llm
 
-# fetch the model aliases (tells llm what the five models are called and where to find them)
-mkdir -p "$(dirname "$(llm logs path)")"
-curl -fsSL https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/extra-openai-models.yaml \
-  -o "$(dirname "$(llm logs path)")/extra-openai-models.yaml"
+# fetch the two setup files: model aliases, and the read-only repo tools
+CFG="$(dirname "$(llm logs path)")"; mkdir -p "$CFG"
+for f in extra-openai-models.yaml panel_tools.py; do
+  curl -fsSL "https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/$f" -o "$CFG/$f"
+done
 
 # store the key (prompts for it — nothing lands in your shell history)
 llm keys set ollama
@@ -159,12 +160,43 @@ llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # are the alia
 llm logs -n 5                                                     # every past exchange, in local SQLite
 ```
 
+## What the panel can read
+
+Each panelist gets three read-only tools — `list_files`, `read_file`, `grep_repo` — over the
+repo you invoke it from. They exist because a panelist that cannot check anything invents
+instead: across two real runs, six "measured" claims were fact-checked and **four were
+fabricated**, in the same confident tone as the true ones.
+
+The boundary is in `setup/panel_tools.py`, and it is worth understanding before you point
+this at a private repo:
+
+| Guard | Value |
+|---|---|
+| Excluded paths | `external/`, `docs/research/`, `.git/`, `node_modules/`, `target/` |
+| Per-file limit | 256KB |
+| Total per panelist | 256KB, and it **refuses** rather than truncating when spent |
+| Tool rounds | 6 (`--cl 6`) |
+| Root | `PANEL_REPO_ROOT`; unset means the tools disable themselves |
+
+Edit the `DENY` tuple for your own repo — that list is the whole exposure decision. Note
+that a deny-list is deliberate: an allow-list would be chosen by the same curator whose
+blind spot the tools exist to route around, so it could only ever confirm what the curator
+already thought was relevant.
+
+Every tool call is recorded in llm's SQLite (`tool_calls`, `tool_results`), so you can audit
+afterwards exactly which files each model pulled.
+
 ## Updating
 
 ```
 /plugin marketplace update heiyu-claude-skills
 /plugin update panel
 ```
+
+⚠️ **The two files in `setup/` do not ride along with the plugin** — `llm` owns that config
+directory, not Claude Code. After an update that touches them, re-run the `curl` loop from
+step 2. A missing `panel_tools.py` fails **all five** panelists at once, since `--functions`
+cannot load.
 
 ## License
 

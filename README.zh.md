@@ -48,10 +48,11 @@
 # 装 llm CLI
 uv tool install llm                 # 没有 uv 就用： brew install llm
 
-# 下载模型别名配置（告诉 llm 那五个模型叫什么、去哪找）
-mkdir -p "$(dirname "$(llm logs path)")"
-curl -fsSL https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/extra-openai-models.yaml \
-  -o "$(dirname "$(llm logs path)")/extra-openai-models.yaml"
+# 下载两个配置文件：模型别名 + 只读仓库工具
+CFG="$(dirname "$(llm logs path)")"; mkdir -p "$CFG"
+for f in extra-openai-models.yaml panel_tools.py; do
+  curl -fsSL "https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/$f" -o "$CFG/$f"
+done
 
 # 存 key（会提示你粘贴，不会进 shell 历史）
 llm keys set ollama
@@ -138,6 +139,33 @@ llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # 别名注册
 llm logs -n 5                                                     # 历史问答都在本地 SQLite
 ```
 
+## 五家能读到什么
+
+每家会拿到三个只读工具——`list_files` / `read_file` / `grep_repo`——作用于你唤起会诊时
+所在的那个仓。它们存在的理由：**查不了的模型会编。** 两场真实会诊里核过 6 条"实测"断言，
+**4 条是编的**，而且语气和真事实一模一样。
+
+边界写在 `setup/panel_tools.py` 里，指向私有仓之前值得先看一眼：
+
+| 闸门 | 取值 |
+|---|---|
+| 排除目录 | `external/`、`docs/research/`、`.git/`、`node_modules/`、`target/` |
+| 单文件上限 | 256KB |
+| 每家累计预算 | 256KB，**用尽时拒绝而非截断** |
+| 工具轮数 | 6（`--cl 6`） |
+| 仓根 | `PANEL_REPO_ROOT`；不设则工具自动禁用 |
+
+按自己的仓改 `DENY` 那个元组——**那份清单就是全部的暴露决策**。
+
+用黑名单而不是白名单是刻意的：白名单由策展者自己定，而工具存在的意义恰恰是绕开策展者的
+盲区，白名单只能确认"他本来就认为相关"的东西。
+
+每次工具调用都记在 llm 的 SQLite 里（`tool_calls`、`tool_results`），事后能查每家读了哪些文件。
+
 ## 更新
 
 推到这个仓之后，同事各自 `/plugin marketplace update heiyu-claude-skills` 就能收到。
+
+⚠️ **`setup/` 下那两个文件不会跟着 plugin 走**——那个配置目录归 `llm` 管，不归 Claude Code。
+涉及它们的更新之后，要重跑第 2 步里那段 curl。**缺了 `panel_tools.py` 会让五家一起失败**，
+因为 `--functions` 加载不到文件。

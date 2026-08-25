@@ -28,8 +28,10 @@ manufactures a fake consensus, which is worse than no panel at all.
 
 ## 1. Build the question package
 
-The panel cannot see this conversation and cannot see the codebase. **Everything they need
-has to be handed over by hand.** Use Read/Grep to pull the real content, then assemble:
+The panel can read the repository (§2 gives them `list_files` / `read_file` / `grep_repo`),
+but it **cannot see this conversation**, and it does not know which files matter. Hand over
+everything anyway: the tools are for verifying and for finding what you missed, not a
+substitute for curation. Use Read/Grep to pull the real content, then assemble:
 
 - Background and stack (one line)
 - The goal and the hard constraints
@@ -69,6 +71,8 @@ Write the package to `$D/q.md` with Write (`$D` comes from the next step).
 ```bash
 export NO_PROXY='ollama.com'   # bypass a system proxy that can't reach ollama.com
 llm keys list 2>/dev/null | grep -q . || { echo "No API keys stored — run: llm keys set ollama"; exit 1; }
+export PANEL_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+export TOOLS="$(dirname "$(llm logs path)")/panel_tools.py"
 D=~/.claude/panel-runs/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D/out" && echo "$D"
 ```
@@ -77,7 +81,7 @@ Once the package is written to `$D/q.md`:
 
 ```bash
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} -o reasoning_effort max < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
+  | xargs -P5 -I{} sh -c 'timeout 540 llm -m {} -o reasoning_effort max --functions "$TOOLS" --cl 6 < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
 for f in out/*.md; do
   s=$(wc -c < "$f"); n=$(basename "$f" .md); e=$(cat "out/$n.err")
   if   [ "$s" -lt 200 ]; then echo "ABSENT     $n (${s}B) $e"
@@ -87,7 +91,24 @@ done
 ```
 
 All five run concurrently, so wall-clock is whatever the slowest survivor takes, and
-`timeout 360` caps that at six minutes. **Give the Bash call a 420000 timeout.**
+`timeout 540` caps that at nine minutes. **Give the Bash call a 600000 timeout.**
+
+**The panel can read the repo.** `--functions` hands each panelist three read-only tools —
+`list_files`, `read_file`, `grep_repo` — scoped by `panel_tools.py`, which lives beside
+`extra-openai-models.yaml` in llm's config directory. `--cl 6` caps the tool rounds.
+
+This exists because panelists that cannot check anything invent things instead: across two
+real runs, six "measured" claims were fact-checked and **four were fabricated**, delivered
+in exactly the same confident register as the true ones. It also routes around the
+curator's blind spot — an allow-list chosen by the curator could only ever confirm what the
+curator already thought was relevant, which is the one failure the tools are meant to catch.
+
+The exposure boundary lives in `panel_tools.py`, not here: a deny-list (`external/`,
+`docs/research/`, `.git/`, `node_modules/`, `target/`), a 256KB per-file limit, and a 256KB
+total budget per panelist that **refuses rather than truncates** when exhausted — a model
+that knows it was refused says so; one handed half a file reasons confidently about the
+half it got. Set `PANEL_REPO_ROOT`; without it the tools disable themselves rather than
+guessing at a root.
 
 **Three states, and all three matter:**
 
@@ -98,18 +119,20 @@ All five run concurrently, so wall-clock is whatever the slowest survivor takes,
   catches it; the shortest legitimate answer in a real panel was 7620 bytes, so there is
   no risk of a false kill.
 - **TRUNCATED** (real output, but `.err` is non-empty) is usually `exit=124` — killed at
-  the 360s cap mid-stream. **It has content but probably no conclusion.** Use its
+  the 540s cap mid-stream. **It has content but probably no conclusion.** Use its
   reasoning, never score its silence on an issue as "didn't mention", and label it in the
   matrix.
 - **ok** is the only state you may treat as a complete answer.
 
 **Two settings are welded shut. Do not undo them:**
 
-- **`timeout 360` per panelist, and the panel proceeds without the stragglers.** Without it
-  one model hangs the whole review — the openai client's own default is 600 seconds. 360
-  is measured, not guessed: across 55 real calls it killed both runaway generations and
-  zero legitimate answers (slowest honest completion: 354s; at 300s it would have killed
-  five). The margin is thin by design, which is why absences must be named, never hidden.
+- **A per-panelist `timeout`, and the panel proceeds without the stragglers.** Without it
+  one model hangs the whole review — the openai client's own default is 600 seconds. The
+  previous cap of 360 was measured: across 55 tool-free calls it killed both runaway
+  generations and zero legitimate answers (slowest honest completion: 354s). **540 is not
+  measured** — it is 360 plus room for six tool rounds, and it needs re-deriving from the
+  logs once enough tool-using panels have run. Until then, expect more TRUNCATED than
+  before, and name every absence.
 - **Never send `max_tokens`.** Each model stops when it is actually done. Runaways do
   happen (twice in 55 calls, both `deepseek-flash`, both hitting the endpoint's own 65536
   ceiling with `finish_reason: length`), but the wall-clock timeout is the fix for those —
