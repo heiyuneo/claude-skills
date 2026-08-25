@@ -67,21 +67,34 @@ Once the package is written to `$D/q.md`:
 
 ```bash
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -I{} sh -c 'llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < q.md > out/{}.md 2> out/{}.err'
+  | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
 for f in out/*.err; do [ -s "$f" ] && { echo "== ${f}"; cat "$f"; }; done
 wc -c out/*.md
 ```
 
-All five run concurrently, so wall-clock is whatever the slowest one takes: ~12s for a
-short question, **minutes** for a real one with code pasted in at max effort — **give the
-Bash call a 900000 timeout.**
+All five run concurrently, so wall-clock is whatever the slowest survivor takes, and
+`timeout 360` caps that at six minutes no matter what. **Give the Bash call a 420000
+timeout** — 360s for the models plus overhead.
 
-**Two settings are welded shut. Do not undo them:**
+**Three settings are welded shut. Do not undo them:**
+
+- **`timeout 360` per panelist, and the panel proceeds without the stragglers.** Without
+  it one model hangs the whole review: the openai client's own default is **600 seconds**,
+  so a single stuck call means ten minutes of nothing. 360 is not a guess — it is where
+  the measured distribution has a clean break. Across 55 real calls, a 360s cap killed
+  **both** runaway generations and **zero** legitimate answers (the slowest honest
+  completion was 354s). At 300s it would have killed five good answers. Note the margin is
+  thin: an occasional missing panelist is the accepted price, which is exactly why the
+  summary must name absences instead of hiding them.
 
 - **Never send `max_tokens`.** `llm` omits it by default (the request body was measured:
-  only `messages`/`model`/`reasoning_effort`/`stream`), so the endpoint stops at the
-  model's own limit and `finish_reason` comes back `stop`, never `length`. **Never impose
-  an output cap on the panel** — the whole point is letting them finish the argument.
+  only `messages`/`model`/`reasoning_effort`/`stream`), so each model stops when it is
+  actually done. **Never impose an output cap on the panel** — the whole point is letting
+  them finish the argument. Runaway generations do happen (twice in 55 calls, both
+  `deepseek-flash`, both hitting the server's own 65536-token ceiling with
+  `finish_reason: length` after 6–9 minutes), but the fix for those is the wall-clock
+  timeout above, not a token cap that would truncate honest answers — legitimate ones have
+  been measured as long as 17466 tokens.
 - **`-o reasoning_effort max`.** The endpoint accepts `none`/`low`/`medium`/`high`/`max`
   (an invalid value errors, which proves the field is honored rather than ignored).
   Measured on one hard Raft question: `high` → 4406 chars of reasoning / 2688 of answer;
@@ -93,7 +106,12 @@ Drop to `high` only when the question is easy and you're in a hurry. Never use
 
 Read every `out/*.md` when it finishes. **If any `.err` is non-empty or any `.md` is zero
 bytes, say plainly in the summary that that panelist was absent** — never imply all five
-answered when they didn't.
+answered when they didn't. `PANELIST FAILED exit=124` means it hit the 360s cap; any other
+exit code is a real error and the `.err` file says what it was.
+
+**Four answers are still a panel — go ahead and reconcile them.** Never re-run a timed-out
+panelist to "complete the set": it doubles the wall-clock for one more opinion, and the
+user is waiting. Just name who is missing.
 
 ## 3. Reconcile (four fixed sections, none optional)
 
@@ -136,7 +154,7 @@ cd "$D"
   for f in out/*.md; do echo; echo "### Answer $1"; echo; cat "$f"; shift; done
 } > r2.md
 mkdir -p out2 && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -I{} sh -c 'llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < r2.md > out2/{}.md 2> out2/{}.err'
+  | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < r2.md > out2/{}.md 2> out2/{}.err || echo "PANELIST FAILED exit=$?" >> out2/{}.err'
 for f in out2/*.err; do [ -s "$f" ] && { echo "== $f"; cat "$f"; }; done
 wc -c out2/*.md
 ```
