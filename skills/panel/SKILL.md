@@ -93,15 +93,22 @@ done
 All five run concurrently, so wall-clock is whatever the slowest survivor takes, and
 `timeout 540` caps that at nine minutes. **Give the Bash call a 600000 timeout.**
 
-**The panel can read the repo.** `--functions` hands each panelist three read-only tools —
-`list_files`, `read_file`, `grep_repo` — scoped by `panel_tools.py`, which lives beside
-`extra-openai-models.yaml` in llm's config directory. `--cl 6` caps the tool rounds.
+**The panel can check things.** `--functions` hands each panelist four read-only tools —
+`list_files`, `read_file`, `grep_repo` over the repo, and `web_search` over the public web —
+defined in `panel_tools.py`, which lives beside `extra-openai-models.yaml` in llm's config
+directory. `--cl 6` caps the total tool rounds, shared across all four.
 
 This exists because panelists that cannot check anything invent things instead: across two
 real runs, six "measured" claims were fact-checked and **four were fabricated**, delivered
-in exactly the same confident register as the true ones. It also routes around the
-curator's blind spot — an allow-list chosen by the curator could only ever confirm what the
-curator already thought was relevant, which is the one failure the tools are meant to catch.
+in exactly the same confident register as the true ones. The two tool families cover the two
+fabrication classes — repo tools for claims about this codebase, `web_search` for claims
+about the world (library versions, whether an API exists, what a cited source actually
+says), which is where the earlier fabrications clustered. Repo access also routes around the
+curator's blind spot: an allow-list chosen by the curator could only ever confirm what the
+curator already thought was relevant, which is the one failure the tools exist to catch.
+
+**Tool access does not make their claims true.** It removes the excuse, not the risk — a
+model can still read one file and assert something about another. §3 still adjudicates.
 
 The exposure boundary lives in `panel_tools.py`, not here: a deny-list (`external/`,
 `docs/research/`, `.git/`, `node_modules/`, `target/`), a 256KB per-file limit, and a 256KB

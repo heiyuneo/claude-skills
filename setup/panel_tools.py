@@ -10,15 +10,19 @@ truncation) when the budget runs out. Set PANEL_REPO_ROOT to the repo being revi
 without it the tools stay disabled rather than defaulting to somewhere surprising.
 """
 
+import json
 import os
 import re
-import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 DENY = ("external/", "docs/research/", ".git/", "node_modules/", "target/")
 MAX_READ = 256 * 1024      # any single file in a normal repo fits whole
 BUDGET = 256 * 1024        # the real gate: total bytes one panelist may pull
 GREP_HITS = 60
+WEB_RESULTS = 3            # results per search
+WEB_CHARS = 2500           # per-result content cap
 
 _spent = 0
 
@@ -121,6 +125,43 @@ def grep_repo(pattern: str, path_glob: str = "**/*") -> str:
     return "\n".join(hits) or f"No matches for {pattern}."
 
 
+def web_search(query: str) -> str:
+    """Search the public web and return the top results as 'TITLE / URL / excerpt'.
+
+    Use this to check any claim about the outside world — a library's current version,
+    whether an API exists, what a source actually says. If the results do not support a
+    claim you were about to make, say that instead of asserting it.
+    """
+    global _spent
+    keyfile = Path(os.environ.get(
+        "LLM_USER_PATH", Path.home() / "Library/Application Support/io.datasette.llm"
+    )) / "keys.json"
+    try:
+        key = json.loads(keyfile.read_text())["ollama"]
+    except (OSError, KeyError, ValueError):
+        return ("Web search unavailable: no 'ollama' key is stored. Answer from the "
+                "package and the repo only, and mark anything you cannot check.")
+    req = urllib.request.Request(
+        "https://ollama.com/api/web_search",
+        data=json.dumps({"query": query}).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=45) as r:
+            results = json.loads(r.read()).get("results", [])
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        return f"Web search failed ({e}). Treat the claim as unverified rather than assuming."
+    if not results:
+        return f"No results for {query!r}. That absence is itself evidence — say so."
+    out = []
+    for r in results[:WEB_RESULTS]:
+        body = (r.get("content") or "")[:WEB_CHARS]
+        out.append(f"### {r.get('title','(no title)')}\n{r.get('url','')}\n\n{body}")
+    text = "\n\n".join(out)
+    _spent += len(text.encode())
+    return text
+
+
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as d:
@@ -145,4 +186,8 @@ if __name__ == "__main__":
         out = read_file("src/a.ts")
         assert "read budget remains" in out, "must refuse, never truncate"
         assert "Nothing was read" in out
+
+        # web_search must degrade to a clear message, never raise, when no key is stored
+        os.environ["LLM_USER_PATH"] = str(root)
+        assert "unavailable" in web_search("anything"), "missing key must not crash"
         print("panel_tools self-check: ok")

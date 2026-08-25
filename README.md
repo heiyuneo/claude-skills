@@ -145,7 +145,7 @@ Five models run concurrently, so wall-clock is whatever the slowest one takes: r
 12 seconds for a short question, but **minutes** for a real one with code pasted in at
 max reasoning effort. The skill deliberately sends **no `max_tokens`** and always uses
 `reasoning_effort: max` — a panel exists to get the full argument, and truncating the
-reasoning defeats the point. Budget your tool timeout accordingly (the skill uses 900s).
+reasoning defeats the point. With repo and web tools in the loop each panelist is capped at 540s, and the whole fan-out at 600s.
 
 ## Troubleshooting
 
@@ -162,10 +162,16 @@ llm logs -n 5                                                     # every past e
 
 ## What the panel can read
 
-Each panelist gets three read-only tools — `list_files`, `read_file`, `grep_repo` — over the
-repo you invoke it from. They exist because a panelist that cannot check anything invents
-instead: across two real runs, six "measured" claims were fact-checked and **four were
-fabricated**, in the same confident tone as the true ones.
+Each panelist gets four read-only tools — `list_files`, `read_file`, `grep_repo` over the
+repo you invoke it from, plus `web_search` over the public web. They exist because a
+panelist that cannot check anything invents instead: across two real runs, six "measured"
+claims were fact-checked and **four were fabricated**, in the same confident tone as the
+true ones. Repo tools cover claims about your code; `web_search` covers claims about the
+world — library versions, whether an API exists, what a cited source actually says — which
+is where those fabrications clustered.
+
+`web_search` reuses the `ollama` key you already stored, so there is nothing extra to sign
+up for. Without that key it degrades to a clear "unavailable" message rather than failing.
 
 The boundary is in `setup/panel_tools.py`, and it is worth understanding before you point
 this at a private repo:
@@ -175,7 +181,7 @@ this at a private repo:
 | Excluded paths | `external/`, `docs/research/`, `.git/`, `node_modules/`, `target/` |
 | Per-file limit | 256KB |
 | Total per panelist | 256KB, and it **refuses** rather than truncating when spent |
-| Tool rounds | 6 (`--cl 6`) |
+| Tool rounds | 6 (`--cl 6`), shared across all four tools |
 | Root | `PANEL_REPO_ROOT`; unset means the tools disable themselves |
 
 Edit the `DENY` tuple for your own repo — that list is the whole exposure decision. Note
