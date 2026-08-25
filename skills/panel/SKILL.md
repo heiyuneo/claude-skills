@@ -28,8 +28,7 @@ manufactures a fake consensus, which is worse than no panel at all.
 
 ## 1. Build the question package
 
-The panel can read the repository (§2 gives them `list_files` / `read_file` / `grep_repo`),
-but it **cannot see this conversation**, and it does not know which files matter. Hand over
+The panel can read the repository and search the web (§2), but it **cannot see this conversation**, and it does not know which files matter. Hand over
 everything anyway: the tools are for verifying and for finding what you missed, not a
 substitute for curation. Use Read/Grep to pull the real content, then assemble:
 
@@ -50,10 +49,15 @@ sounds nicer.
 
 > 1. List the key assumptions your answer rests on (at most five, most load-bearing first).
 > 2. State what evidence would change your mind.
+> 3. List what this package does not contain that you would have needed, and what you
+>    assumed in its absence.
 
-This is the cheapest instrument that exists for detecting **shared** assumptions. All five
-panelists read the same package, so their errors are correlated by construction; assumption
-lists are what make that correlation visible in §3 instead of being scored as agreement.
+All five read the same package, so their errors are correlated by construction. #1 and #2
+make that correlation visible in §3 instead of scoring it as agreement. **#3 is the only
+signal you get about your own curation** — the package is a black box that reports no
+errors, so five independent reports of what was missing is the one channel that does not
+pass through the curator. When several name the same gap, that is a curation defect, and it
+belongs in the summary.
 
 **Never state a preference** ("I'm leaning toward option A"). With a single reviewer,
 naming your leaning provokes a useful rebuttal; with a panel it anchors all five at once
@@ -88,22 +92,23 @@ for f in out/*.md; do
   elif [ -n "$e" ];      then echo "TRUNCATED  $n (${s}B) $e"
   else                        echo "ok         $n (${s}B)"; fi
 done
+sqlite3 "$(llm logs path)" "select model||' finish='||coalesce(json_extract(response_json,'\$.finish_reason'),'null') from turns order by id desc limit 5;"
 ```
 
 All five run concurrently, so wall-clock is whatever the slowest survivor takes, and
 `timeout 540` caps that at nine minutes. **Give the Bash call a 600000 timeout.**
 
-**The panel can check things.** `--functions` hands each panelist four read-only tools —
-`list_files`, `read_file`, `grep_repo` over the repo, and `web_search` over the public web —
-defined in `panel_tools.py`, which lives beside `extra-openai-models.yaml` in llm's config
-directory. `--cl 6` caps the total tool rounds, shared across all four.
+**The panel can check things.** `--functions` hands each panelist five read-only tools —
+`list_files`, `read_file`, `grep_repo` over the repo, and `web_search` / `web_fetch` over the
+public web — defined in `panel_tools.py`, which lives beside `extra-openai-models.yaml` in llm's config
+directory. `--cl 6` caps the total tool rounds, shared across all five.
 
 This exists because panelists that cannot check anything invent things instead: across two
 real runs, six "measured" claims were fact-checked and **four were fabricated**, delivered
 in exactly the same confident register as the true ones. The two tool families cover the two
-fabrication classes — repo tools for claims about this codebase, `web_search` for claims
-about the world (library versions, whether an API exists, what a cited source actually
-says), which is where the earlier fabrications clustered. Repo access also routes around the
+fabrication classes — repo tools for claims about this codebase, `web_search` and `web_fetch` for claims about the world,
+which is where the earlier fabrications clustered — search to find the source, fetch to read
+the primary page instead of reasoning from snippets about it. Repo access also routes around the
 curator's blind spot: an allow-list chosen by the curator could only ever confirm what the
 curator already thought was relevant, which is the one failure the tools exist to catch.
 
@@ -125,10 +130,12 @@ guessing at a root.
   `llm logs`. Every package under 9KB has been fine. A byte check is the only thing that
   catches it; the shortest legitimate answer in a real panel was 7620 bytes, so there is
   no risk of a false kill.
-- **TRUNCATED** (real output, but `.err` is non-empty) is usually `exit=124` — killed at
-  the 540s cap mid-stream. **It has content but probably no conclusion.** Use its
-  reasoning, never score its silence on an issue as "didn't mention", and label it in the
-  matrix.
+- **TRUNCATED** — either `.err` is non-empty (usually `exit=124`, killed at the 540s cap
+  mid-stream) **or the log line says `finish=length`**, meaning the model hit the
+  endpoint's token ceiling and stopped mid-sentence with a perfectly empty `.err`. The
+  byte check cannot see that second case at all: a runaway answer is *large*. Either way
+  **it has content but probably no conclusion.** Use its reasoning, never score its silence
+  on an issue as "didn't mention", and mark its row in the matrix.
 - **ok** is the only state you may treat as a complete answer.
 
 **Two settings are welded shut. Do not undo them:**
@@ -145,15 +152,11 @@ guessing at a root.
   ceiling with `finish_reason: length`), but the wall-clock timeout is the fix for those —
   a token cap would truncate honest answers, which have run as long as 17466 tokens.
 
-**Re-run only when the panel actually lost its majority:**
-
-- **1 absent → reconcile the rest and move on.** Never re-run to "complete the set": it
-  doubles the wall-clock for one more opinion while the user waits.
-- **2 or more absent → re-run just those, once.** Measured: one such re-run cost 3 minutes
-  and recovered the two most substantive answers of that session. Note that re-sending an
-  unchanged package does not always help — one panelist returned empty both times.
-- **3 or more still absent → don't summarize.** Report what happened and let the user
-  decide. Two opinions is not a panel.
+**Re-run only when the panel lost its majority.** 1 absent → reconcile the rest and move on;
+re-running for one more opinion just doubles the wait. 2+ absent → re-run only those, once
+(measured: 3 minutes, and it recovered that session's two best answers — though one panelist
+came back empty both times). 3+ still absent → don't summarize; report and let the user
+decide. Two opinions is not a panel.
 
 ## 3. Reconcile (four fixed sections, none optional)
 
@@ -195,8 +198,29 @@ visible. On questions with no external anchor to check against, "argument qualit
 means "agrees with my prior". Say so when it applies rather than implying the guards are
 sufficient.
 
+5. **Not covered, not verified** — dimensions the package never asked about, gaps several
+   panelists named under requirement #3, and every load-bearing claim you did **not**
+   check. Without this section the four tidy headings above read as completeness, and the
+   reader has no way to tell a checked claim from an unchecked one.
+
+**Mark every load-bearing claim that enters your recommendation** as `[verified <path:line
+or URL>]` or `[unverified]`. Bounded on purpose — not every sentence, only what the
+recommendation rests on. You have Read, and the panel now has repo and web tools, so an
+unverified load-bearing claim is a choice, and the reader deserves to see which ones you
+made. The rate this guards against is measured: of six "measured" claims fact-checked
+across two runs, **four were fabricated**.
+
 Close with: **your final recommendation + what must still be verified in practice + the
 archive path `$D`**.
+
+**Then write the whole summary to `$D/summary.md`.** This is not bookkeeping; it is the one
+artifact that makes the adjudication auditable. Everything else in the pipeline leaves a
+trace — the package, the five answers, every tool call in llm's SQLite — but the step that
+compresses 80KB of argument into four headings runs in a fork and vanishes with it. Across
+the first ten runs, **not one produced a summary on disk**, so no one could ever check a
+matrix cell against what a panelist actually wrote. Filling a cell is itself a second act of
+curation, performed by the same biased curator, and until it is on disk it cannot be
+questioned.
 
 ## 4. Second round: anonymized peer review
 
@@ -249,20 +273,17 @@ endorsed moves up alongside the consensus.
 ## Troubleshooting
 
 ```bash
-# endpoint + key + model id, all three at once (should print one sentence)
-NO_PROXY='ollama.com' llm -m glm "Introduce yourself in one sentence."
-
-llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # are the aliases registered
-curl -s https://ollama.com/v1/models | jq -r '.data[].id'          # live catalog, for swapping models
-llm logs -n 5                                                      # every past exchange, in local SQLite
+NO_PROXY='ollama.com' llm -m glm "Introduce yourself in one sentence."   # key+endpoint+model
+llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"          # aliases registered?
+curl -s https://ollama.com/v1/models | jq -r '.data[].id'                # live catalog
+llm logs -n 5                                                            # past calls + tool calls
 ```
 
-- All five 401 → `$OLLAMA_API_KEY` wasn't picked up, or the key was rotated.
+- All five 401 → the key alias isn't stored (`llm keys set …`) or was rotated.
 - All five `Connection error` → `NO_PROXY='ollama.com'` is missing.
-- Swapping or adding a model: edit `extra-openai-models.yaml` in `llm`'s config directory
-  (`dirname "$(llm logs path)"`), then update the model list in the commands above.
+- All five fail instantly → `panel_tools.py` is missing from llm's config directory.
+- Swapping a model: edit `extra-openai-models.yaml` beside it, then the list above.
 
-Every call is logged to `llm`'s SQLite (`llm logs path`) with model, duration, tokens and
-finish reason, and every run leaves its package and answers in `$D`. That is the whole
-audit trail — timings, failure rates and the 360s threshold can all be re-derived from it,
-so don't add bookkeeping on top.
+A run's full trail is `$D` (package, answers, `baseline.md`, `summary.md`) plus llm's SQLite
+(durations, tokens, finish reasons, every tool call). Timings and thresholds are re-derivable
+from it, so add no bookkeeping beyond those two.
