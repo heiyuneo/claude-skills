@@ -6,5 +6,7 @@
     "name": "heiyu"
   },
   "keywords": ["panel", "consult", "multi-model", "review", "second-opinion"],
+  "license": "MIT",
+  "homepage": "https://github.com/heiyuneo/claude-skills",
   "skills": "./skills/"
 }

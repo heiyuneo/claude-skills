@@ -2,6 +2,8 @@
 
 自用 Claude Code skill 合集。目前一个：**panel — 外部多模型会诊**。
 
+[English →](./README.en.md)
+
 ## panel 是什么
 
 在 Claude Code 里说「会诊」「外部会诊」「问问外面的模型」「交叉验证」或直接 `/panel`，
