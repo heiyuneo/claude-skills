@@ -4,13 +4,16 @@ Claude Code skills. Currently one: **panel — an external multi-model panel rev
 
 [中文说明 →](./README.md)
 
-## What panel does
+## panel — five outside models, called in for a second opinion
 
-Say "panel", "second opinion", "ask the outside models", or run `/panel` in Claude Code.
-It packages your question and fans it out to five **non-Claude** models on
-[Ollama Cloud](https://ollama.com) — `deepseek-flash`, `nemotron`, `glm`, `kimi`, `minimax` —
-all five in parallel, all at max reasoning effort. It then reconciles the answers into a
-fixed four-part summary:
+Normally when you ask Claude Code something, exactly one model answers. Some decisions
+deserve better than that: should this module be split out, does this concurrent write have
+a race I can't see, is this PR safe to ship.
+
+Install this and you say "panel this" — it packages your question *along with the relevant
+code* and fans it out to five **non-Claude** models on [Ollama Cloud](https://ollama.com)
+(DeepSeek, Nemotron, GLM, Kimi, MiniMax), all in parallel, all at max reasoning effort.
+Claude then takes the five opinions back and reconciles them into four parts:
 
 | Section | What goes in it |
 |---|---|
