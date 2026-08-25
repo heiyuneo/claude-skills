@@ -1,0 +1,35 @@
+# Ollama Cloud (OpenAI-compatible endpoint) — 会诊用的 5 家外部模型
+# key 不落盘：api_key_name 只是让 llm 认得 --key，实际值调用时传 --key "$OLLAMA_API_KEY"
+# 若本机挂了系统代理、而代理对 ollama.com 不通：命令前加 NO_PROXY='ollama.com'
+# （没挂代理的机器加了也无害，skill 里的命令一律带着它）
+# 目录随时可查：curl -s https://ollama.com/v1/models | jq -r '.data[].id'
+
+- model_id: deepseek-flash
+  model_name: deepseek-v4-flash:0731
+  api_base: "https://ollama.com/v1"
+  api_key_name: ollama
+  reasoning: true
+
+- model_id: nemotron
+  model_name: nemotron-3-ultra
+  api_base: "https://ollama.com/v1"
+  api_key_name: ollama
+  reasoning: true
+
+- model_id: glm
+  model_name: glm-5.2
+  api_base: "https://ollama.com/v1"
+  api_key_name: ollama
+  reasoning: true
+
+- model_id: kimi
+  model_name: kimi-k2.7-code
+  api_base: "https://ollama.com/v1"
+  api_key_name: ollama
+  reasoning: true
+
+- model_id: minimax
+  model_name: minimax-m3
+  api_base: "https://ollama.com/v1"
+  api_key_name: ollama
+  reasoning: true

@@ -1,0 +1,10 @@
+{
+  "name": "panel",
+  "description": "外部多模型会诊：把一个高赌注问题同时发给 ollama cloud 上五家非 Claude 模型（deepseek-flash / nemotron / glm / kimi / minimax），汇总成立场矩阵、共识区、分歧区、独有洞察四段。需要 llm CLI 与各人自己的 OLLAMA_API_KEY，装法见 README。",
+  "version": "0.1.0",
+  "author": {
+    "name": "heiyu"
+  },
+  "keywords": ["panel", "consult", "multi-model", "review", "second-opinion"],
+  "skills": "./skills/"
+}
