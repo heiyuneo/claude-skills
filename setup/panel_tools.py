@@ -17,7 +17,7 @@ import urllib.error
 import urllib.request
 import pathlib
 
-DENY = ("external/", "docs/research/", ".git/", "node_modules/", "target/")
+DENY = ("external/", "docs/research/", ".git/", ".worktrees/", "node_modules/", "target/")
 MAX_READ = 256 * 1024      # any single file in a normal repo fits whole
 BUDGET = 256 * 1024        # the real gate: total bytes one panelist may pull
 GREP_HITS = 60
@@ -26,6 +26,17 @@ WEB_CHARS = 2500           # per-result content cap
 FETCH_CHARS = 12000        # one fetched page; they run 30KB+ raw
 
 _spent = 0
+
+
+def _denied(rel: str) -> bool:
+    """True if any excluded directory appears anywhere in the path, not just at the front.
+
+    Prefix matching alone is not enough: a git worktree under .worktrees/<branch>/ carries a
+    full copy of the tree, so 'docs/research/x.md' reappears as
+    '.worktrees/foo/docs/research/x.md' and sails straight past a startswith() check. That
+    happened — 96 excluded files were readable through a worktree copy before this fix.
+    """
+    return any(f"/{d}" in f"/{rel}" for d in DENY)
 
 
 def _root():
@@ -42,7 +53,7 @@ def _resolve(path: str):
     if not (p == root or root in p.parents):
         return None, f"Refused: {path} is outside the repository."
     rel = p.relative_to(root).as_posix()
-    if any(rel.startswith(d) for d in DENY):
+    if _denied(rel):
         return None, f"Refused: {rel} is in an excluded area ({', '.join(DENY)})."
     return p, None
 
@@ -60,7 +71,7 @@ def list_files(pattern: str = "**/*") -> str:
         if not p.is_file():
             continue
         rel = p.relative_to(root).as_posix()
-        if any(rel.startswith(d) for d in DENY):
+        if _denied(rel):
             continue
         out.append(f"{rel} ({p.stat().st_size // 1024}KB)")
         if len(out) >= 200:
@@ -112,7 +123,7 @@ def grep_repo(pattern: str, path_glob: str = "**/*") -> str:
         if not p.is_file():
             continue
         rel = p.relative_to(root).as_posix()
-        if any(rel.startswith(d) for d in DENY):
+        if _denied(rel):
             continue
         try:
             for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
@@ -203,6 +214,12 @@ if __name__ == "__main__":
 
         assert "export const x" in read_file("src/a.ts")
         assert "excluded area" in read_file("external/secret.md"), "deny-list must hold"
+        (root / ".worktrees/br/docs/research").mkdir(parents=True)
+        (root / ".worktrees/br/docs/research/plan.md").write_text("unreleased plan\n")
+        assert "excluded area" in read_file(".worktrees/br/docs/research/plan.md"), \
+            "a worktree copy must not bypass the deny-list"
+        assert ".worktrees" not in list_files("**/*.md")
+        assert "unreleased plan" not in grep_repo("unreleased")
         assert "outside the repository" in read_file("../../etc/passwd"), "no escapes"
         assert "per-file limit" in read_file("big.txt"), "oversize must refuse"
         assert "src/a.ts" in list_files("**/*.ts")
