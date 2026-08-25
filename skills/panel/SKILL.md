@@ -2,7 +2,7 @@
 name: panel
 description: Run an external multi-model panel review and reconcile the results. Triggers on "panel", "panel this", "second opinion", "ask the outside models", "cross-check this", or /panel — and on 「会诊」「外部会诊」「问问外面的模型」「交叉验证」「让它们评评」. The panel is five non-Claude models on ollama cloud; for Claude's own models (opus/sonnet/fable) use the consult skill instead.
 argument-hint: [the question to review]
-allowed-tools: Read, Grep, Glob, Bash
+allowed-tools: Read, Write, Grep, Glob, Bash
 context: fork
 ---
 
@@ -68,9 +68,20 @@ Once the package is written to `$D/q.md`:
 ```bash
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
   | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
-for f in out/*.err; do [ -s "$f" ] && { echo "== ${f}"; cat "$f"; }; done
-wc -c out/*.md
+for f in out/*.md; do
+  s=$(wc -c < "$f"); n=$(basename "$f" .md)
+  if [ "$s" -lt 200 ]; then echo "ABSENT  $n  (${s}B)  $(cat out/$n.err)"
+  else echo "ok      $n  (${s}B)"; fi
+done
 ```
+
+**A panelist counts as absent when its `.md` is under 200 bytes — not when it is empty.**
+The dangerous failure here is silent: exit code 0, empty `.err`, and a `.md` containing a
+single newline. Measured: with a 16KB question package, three of five came back that way
+on the first wave (`llm logs` shows their `output_tokens` and `finish_reason` both null).
+Every package under 9KB has been fine. **The bigger the package, the likelier this is —
+which means it strikes exactly when the panel matters most**, on a real review with a lot
+of code pasted in. A byte-size check is the only thing that catches it.
 
 All five run concurrently, so wall-clock is whatever the slowest survivor takes, and
 `timeout 360` caps that at six minutes no matter what. **Give the Bash call a 420000
@@ -104,14 +115,26 @@ timeout** — 360s for the models plus overhead.
 Drop to `high` only when the question is easy and you're in a hurry. Never use
 `low`/`none` — at that point you may as well not convene.
 
-Read every `out/*.md` when it finishes. **If any `.err` is non-empty or any `.md` is zero
-bytes, say plainly in the summary that that panelist was absent** — never imply all five
-answered when they didn't. `PANELIST FAILED exit=124` means it hit the 360s cap; any other
-exit code is a real error and the `.err` file says what it was.
+Read every `out/*.md` that came back. **Name every absent panelist in the summary** —
+never imply all five answered when they didn't. `PANELIST FAILED exit=124` in the `.err`
+means the 360s cap; any other exit code is a real error the `.err` will describe; an empty
+`.err` next to a tiny `.md` is the silent failure above.
 
-**Four answers are still a panel — go ahead and reconcile them.** Never re-run a timed-out
-panelist to "complete the set": it doubles the wall-clock for one more opinion, and the
-user is waiting. Just name who is missing.
+**Re-run only when the panel actually lost its majority:**
+
+- **1 absent → reconcile the four and move on.** Never re-run to "complete the set": it
+  doubles the wall-clock for one more opinion while the user waits.
+- **2 or more absent → re-run just the absent ones, once.** The don't-re-run rule exists to
+  protect against paying double for one extra voice; it does not apply when most of the
+  panel is missing. Measured: one such re-run cost 3 minutes and recovered the two longest,
+  most substantive answers of that session.
+- **3 or more still absent after the re-run → don't summarize.** Report what happened and
+  let the user decide. Two opinions is not a panel.
+
+**Calibrate the summary's confidence to who showed up.** 5/5 → state conclusions plainly.
+4/5 → hedge the consensus claims ("three of four", "leans toward"). 3/5 → say explicitly
+that confidence is low and the consensus section may be an artifact of who happened to
+answer. Writing a 4/5 result in a 5/5 voice is the most likely way this skill misleads.
 
 ## 3. Reconcile (four fixed sections, none optional)
 
