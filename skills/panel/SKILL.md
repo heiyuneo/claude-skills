@@ -6,43 +6,64 @@ allowed-tools: Read, Grep, Glob, Bash
 context: fork
 ---
 
-就 $ARGUMENTS 组织一次外部多模型会诊。
+Convene an external panel review on $ARGUMENTS.
 
-会诊五家（都在 ollama cloud，走同一个 OpenAI 兼容端点）：
+The five panelists (all on ollama cloud, one OpenAI-compatible endpoint):
 `deepseek-flash` · `nemotron` · `glm` · `kimi` · `minimax`
 
-## 零、先判断值不值
+## Language
 
-**标准：这个决定如果错了，返工成本大不大？** 大就会诊，小就别。
+**Write the question package and the final summary in the language the user asked in.**
+Chinese question → Chinese package, Chinese summary (立场矩阵 / 共识区 / 分歧区 / 独有洞察).
+English question → English throughout. Never mix: one language end to end.
 
-不该会诊：起名字、写工具函数、任何你心里已经有答案只是想要认同的事——那样只会拿到假共识。
+These instructions are in English so anyone can read and fork them. That has nothing to do
+with what language you answer in — follow the user.
 
-## 一、准备问题包
+## 0. Is it worth it at all
 
-外部模型看不到本会话，也看不到代码库。**所有它们需要的东西都得亲手交过去。** 先用 Read/Grep 取出真实内容，组织成：
+**The test: if this decision turns out wrong, how expensive is the rework?** Expensive →
+convene. Cheap → don't.
 
-- 背景与技术栈（一句话）
-- 目标与硬约束
-- 相关代码原文（**贴全，不要省略成 `...`**）
-- 会话里定过但没落盘的决定、约束、主人原话
-- 三个以内的具体提问
+Never convene for: naming things, writing a utility function, or anything where the user
+already has an answer and just wants agreement. That last one only manufactures a fake
+consensus.
 
-**不要在问题包里限制答案长度**——不要写"简要回答""三句话内""控制在 500 字"。限制提问数量（三个以内）是为了让它们聚焦，限制回答长度只会让它们把论证过程砍掉，剩下光秃秃的结论，而**会诊要的恰恰是论证过程**——第三节的裁决靠的是理由硬不硬，不是结论听着顺不顺。要它们展开说透。
+## 1. Build the question package
 
-**不要写"我倾向于方案 A"。** 单模型咨询时说出倾向能激发反驳；多模型会诊时它会同时锚定所有模型，把假共识做实。要评审既有方案就中立标注：「以下是候选方案之一，请独立评估其代价与替代路径。」
+The panel cannot see this conversation and cannot see the codebase. **Everything they need
+has to be handed over by hand.** Use Read/Grep to pull the real content, then assemble:
 
-把问题包用 Write 写到 `$D/q.md`（`$D` 见下一步）。
+- Background and stack (one line)
+- The goal and the hard constraints
+- The relevant code **verbatim — paste it in full, never elide with `...`**
+- Decisions, constraints and exact user quotes that were settled in conversation but never
+  written to disk
+- At most three specific questions
 
-## 二、发出去
+**Never cap the answer length in the package** — no "keep it brief", no "three sentences",
+no "under 500 words". Capping the number of questions (three) keeps them focused; capping
+the answer length just makes them cut the reasoning and hand back a bare verdict, and
+**the reasoning is the whole point** — the adjudication in §3 turns on whose argument holds
+up, not on whose conclusion sounds nicer. Tell them to take the space they need.
+
+**Never state a preference** ("I'm leaning toward option A"). With a single reviewer,
+naming your leaning provokes a useful rebuttal; with a panel it anchors all five at once
+and makes a fake consensus real. To review an existing design, frame it neutrally: "Below
+is one candidate. Evaluate its costs and the alternatives independently."
+
+Write the package to `$D/q.md` with Write (`$D` comes from the next step).
+
+## 2. Fan it out
 
 ```bash
-export NO_PROXY='ollama.com'   # 本机系统代理对 ollama.com 不通，必须绕开
-[ -n "$OLLAMA_API_KEY" ] || { echo "OLLAMA_API_KEY not set — stopping / 未设置，停"; exit 1; }
+export NO_PROXY='ollama.com'   # bypass a system proxy that can't reach ollama.com
+[ -n "$OLLAMA_API_KEY" ] || { echo "OLLAMA_API_KEY not set — stopping"; exit 1; }
 D=~/.claude/panel-runs/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D/out" && echo "$D"
 ```
 
-问题包写进 `$D/q.md` 之后：
+Once the package is written to `$D/q.md`:
 
 ```bash
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
@@ -51,45 +72,68 @@ for f in out/*.err; do [ -s "$f" ] && { echo "== ${f}"; cat "$f"; }; done
 wc -c out/*.md
 ```
 
-五家并发，墙钟 = 最慢那家。短问题约 12 秒，贴了大段代码 + `max` 档思考的真问题按分钟计——**给 Bash 调用留足 timeout（900000）**。
+All five run concurrently, so wall-clock is whatever the slowest one takes: ~12s for a
+short question, **minutes** for a real one with code pasted in at max effort — **give the
+Bash call a 900000 timeout.**
 
-**关于两个"别阉割"的设定，都已焊死，不要改回去：**
+**Two settings are welded shut. Do not undo them:**
 
-- **不传 `max_tokens`。** llm 默认就不传（请求体实测只有 `messages`/`model`/`reasoning_effort`/`stream`），端点自己按模型上限收尾，`finish_reason` 一路是 `stop` 不是 `length`。**任何时候都不要给这五家加输出长度上限**——会诊要的就是它们把话说完。
-- **`-o reasoning_effort max`。** 端点接受 `none`/`low`/`medium`/`high`/`max` 五档（传非法值会报错，说明是真生效不是被无视）。实测同一道 Raft 硬题：`high` → 思考 4406 字符 / 答案 2688 字符；`max` → 思考 9667 / 答案 4180。默认档（不传）介于两者之间但不稳定。**panel 本来就只用在高赌注问题上，没有省这一档的理由。**
+- **Never send `max_tokens`.** `llm` omits it by default (the request body was measured:
+  only `messages`/`model`/`reasoning_effort`/`stream`), so the endpoint stops at the
+  model's own limit and `finish_reason` comes back `stop`, never `length`. **Never impose
+  an output cap on the panel** — the whole point is letting them finish the argument.
+- **`-o reasoning_effort max`.** The endpoint accepts `none`/`low`/`medium`/`high`/`max`
+  (an invalid value errors, which proves the field is honored rather than ignored).
+  Measured on one hard Raft question: `high` → 4406 chars of reasoning / 2688 of answer;
+  `max` → 9667 / 4180. The unset default sits between them but is not stable. **A panel is
+  only convened for high-stakes questions; there is no reason to economize here.**
 
-赶时间且问题不难时才可以临时降到 `high`；`low`/`none` 不要用在 panel 上——那样还不如不会诊。
+Drop to `high` only when the question is easy and you're in a hurry. Never use
+`low`/`none` — at that point you may as well not convene.
 
-跑完 Read 每份 `out/*.md`。**任何一家 `.err` 非空或 `.md` 为 0 字节，在汇总里明说它缺席**，不要假装五家都到齐了。
+Read every `out/*.md` when it finishes. **If any `.err` is non-empty or any `.md` is zero
+bytes, say plainly in the summary that that panelist was absent** — never imply all five
+answered when they didn't.
 
-## 三、汇总（固定四段，不要省略）
+## 3. Reconcile (four fixed sections, none optional)
 
-1. **立场矩阵**：议题 × 各模型（同意 / 反对 / 未提及）
-2. **共识区**：三家以上一致的，标高置信
-3. **分歧区**：列出争点和各方理由，我给裁决和依据
-4. **独有洞察**：只有一家提到但站得住的——**这一类往往最值钱**，单独列出来
+1. **Position matrix** — every issue × every model (agrees / disagrees / didn't mention)
+2. **Consensus** — where three or more landed independently in the same place; mark it
+   high-confidence
+3. **Disagreements** — the actual point of contention and each side's reasoning, then your
+   adjudication and the evidence for it
+4. **Lone insights** — raised by exactly one model but holding up under scrutiny; **this is
+   often the most valuable section**, so give it its own space
 
-**禁止按票数决策。** 这五家训练语料高度重叠，可能集体犯同一个错；孤零零的少数派意见常常才是对的。以论证质量、以及"能不能被代码或实测证伪"为准——能自己去 Read 代码核实的，就核实了再下结论。
+**Never decide by vote count.** These five share a great deal of training data and can be
+confidently wrong together; the lone dissent is frequently the correct one. Weigh by
+argument quality and by whether a claim can be falsified against code or a real test —
+and where you can check it yourself by Reading the code, check it before adjudicating.
 
-最后给出：**我的最终建议 + 必须实测验证的点 + 存档路径 `$D`**。
+Close with: **your final recommendation + what must still be verified in practice + the
+archive path `$D`**.
 
-## 四、可选升级：匿名互评第二轮（默认不做）
+## 4. Optional second round: anonymized peer review (off by default)
 
-来自 Karpathy 的 llm-council Stage 2。**默认不跑**，代价约 4～9 倍 token、多一波串行延迟。
+Stage 2 from Karpathy's llm-council. **Off by default** — roughly 4–9× the tokens plus one
+more serial wave of latency.
 
-**什么时候值得跑**：五份答案平行摆着看不出高下；分歧区争的是"谁的推理更硬"而不是事实；或者赌注够大（架构拍板、上线前安全面）。
+**When it earns its cost**: the five answers look equally plausible side by side; the
+disagreement is about whose reasoning is stronger rather than about a fact; or the stakes
+are high enough (architecture call, pre-launch security surface).
 
-**为什么抹署名**：模型对自己家的输出风格有偏好，带署名会引入品牌偏见。
+**Why strip the attributions**: models favor output that looks like their own house style,
+so bylines introduce brand bias.
 
-第一轮跑完、`$D` 还在的前提下：
+With round one done and `$D` still present:
 
 ```bash
 cd "$D"
 { cat q.md
   echo; echo "---"
-  echo "以下是五份对上述问题的独立作答，已抹去作者。请逐份评估**论证质量**（不是立场是否流行），排出名次并给理由；若某份提到了其他各份都没提到、且站得住的点，单独指出。"
+  echo "Below are five independent answers to the question above, with authorship removed. Assess each one's **argument quality** (not whether its position is popular), rank them and justify the ranking. If any of them raises a point none of the others did that holds up, call it out separately."
   set -- A B C D E
-  for f in out/*.md; do echo; echo "### 答案 $1"; echo; cat "$f"; shift; done
+  for f in out/*.md; do echo; echo "### Answer $1"; echo; cat "$f"; shift; done
 } > r2.md
 mkdir -p out2 && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
   | xargs -P5 -I{} sh -c 'llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < r2.md > out2/{}.md 2> out2/{}.err'
@@ -97,21 +141,27 @@ for f in out2/*.err; do [ -s "$f" ] && { echo "== $f"; cat "$f"; }; done
 wc -c out2/*.md
 ```
 
-`out/` 按字母序 = deepseek-flash / glm / kimi / minimax / nemotron，对应 A–E；**这个映射只有你和主模型知道，不要写进 `r2.md`**。
+Write the round-two prompt in the user's language, same as everything else.
 
-汇总时把二轮结果并进第三节的四段：被多家点名论证有洞的，即使立场是多数派也降权；被多家认可的少数派意见，提到共识区同等位置。
+`out/` in alphabetical order = deepseek-flash / glm / kimi / minimax / nemotron, mapping to
+A–E. **That mapping stays between you and the user — never put it in `r2.md`.**
 
-## 排障
+Fold round two into the four sections above: an answer several panelists found holes in
+gets downgraded even if its position was the majority one; a minority view several
+panelists endorsed moves up alongside the consensus.
+
+## Troubleshooting
 
 ```bash
-# 端点/key/模型三件套是否都对（应输出一句话）
-NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "用一句话说说你是谁"
+# endpoint + key + model id, all three at once (should print one sentence)
+NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "Introduce yourself in one sentence."
 
-llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # 别名是否注册
-curl -s https://ollama.com/v1/models | jq -r '.data[].id'          # 云端目录（换模型时查）
-llm logs -n 5                                                      # 历史问答全在本地 SQLite
+llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # are the aliases registered
+curl -s https://ollama.com/v1/models | jq -r '.data[].id'          # live catalog, for swapping models
+llm logs -n 5                                                      # every past exchange, in local SQLite
 ```
 
-- 全部 401 → `$OLLAMA_API_KEY` 没读到，或 key 已轮换。
-- 全部 `Connection error` → `NO_PROXY='ollama.com'` 漏了。
-- 换模型/加模型：改 `~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml`，再改上面命令里的名单。
+- All five 401 → `$OLLAMA_API_KEY` wasn't picked up, or the key was rotated.
+- All five `Connection error` → `NO_PROXY='ollama.com'` is missing.
+- Swapping or adding a model: edit `extra-openai-models.yaml` in `llm`'s config directory
+  (`dirname "$(llm logs path)"`), then update the model list in the commands above.
