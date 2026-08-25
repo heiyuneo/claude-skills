@@ -43,8 +43,12 @@ cp /tmp/claude-skills/setup/extra-openai-models.yaml "$(dirname "$(llm logs path
 去 <https://ollama.com> 注册拿 key，**按量计费，走各人自己的账**：
 
 ```bash
-echo 'export OLLAMA_API_KEY=你自己的key' >> ~/.zshrc && source ~/.zshrc
+echo 'export OLLAMA_API_KEY=你自己的key' >> ~/.zshenv && chmod 600 ~/.zshenv
 ```
+
+⚠️ **是 `.zshenv`，不是 `.zshrc`。** Claude Code 每次执行命令都新开一个非交互 shell，
+而 zsh 非交互模式只读 `.zshenv`。写进 `.zshrc` 的话，你在终端里手敲验证命令会通，
+但 skill 一跑就报 `OLLAMA_API_KEY 未设置` 然后停——很容易查半天。
 
 ### 5. 验
 
