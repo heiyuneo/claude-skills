@@ -1,8 +1,17 @@
-# Ollama Cloud (OpenAI-compatible endpoint) — 会诊用的 5 家外部模型
-# key 不落盘：api_key_name 只是让 llm 认得 --key，实际值调用时传 --key "$OLLAMA_API_KEY"
-# 若本机挂了系统代理、而代理对 ollama.com 不通：命令前加 NO_PROXY='ollama.com'
-# （没挂代理的机器加了也无害，skill 里的命令一律带着它）
-# 目录随时可查：curl -s https://ollama.com/v1/models | jq -r '.data[].id'
+# Ollama Cloud (OpenAI-compatible endpoint) — the five panelists.
+#
+# No key on disk: `api_key_name` only makes llm accept a --key flag; the actual value is
+# passed per call as --key "$OLLAMA_API_KEY".
+#
+# `reasoning: true` is what exposes the `reasoning_effort` option. Without it llm won't
+# let you set it, and the panel silently runs at the server default instead of max.
+#
+# Behind a system proxy that can't reach ollama.com, prefix commands with
+# NO_PROXY='ollama.com'. Harmless on a machine with no proxy — every command in the skill
+# carries it already.
+#
+# Live catalog, for when a model name drifts:
+#   curl -s https://ollama.com/v1/models | jq -r '.data[].id'
 
 - model_id: deepseek-flash
   model_name: deepseek-v4-flash:0731
