@@ -15,7 +15,7 @@ import os
 import re
 import urllib.error
 import urllib.request
-from pathlib import Path
+import pathlib
 
 DENY = ("external/", "docs/research/", ".git/", "node_modules/", "target/")
 MAX_READ = 256 * 1024      # any single file in a normal repo fits whole
@@ -30,7 +30,7 @@ _spent = 0
 
 def _root():
     r = os.environ.get("PANEL_REPO_ROOT")
-    return Path(r).resolve() if r else None
+    return pathlib.Path(r).resolve() if r else None
 
 
 def _resolve(path: str):
@@ -128,8 +128,8 @@ def grep_repo(pattern: str, path_glob: str = "**/*") -> str:
 
 def _web(endpoint: str, payload: dict):
     """POST to ollama's web API. Returns (data, error_message)."""
-    keyfile = Path(os.environ.get(
-        "LLM_USER_PATH", Path.home() / "Library/Application Support/io.datasette.llm"
+    keyfile = pathlib.Path(os.environ.get(
+        "LLM_USER_PATH", pathlib.Path.home() / "Library/Application Support/io.datasette.llm"
     )) / "keys.json"
     try:
         key = json.loads(keyfile.read_text())["ollama"]
@@ -193,7 +193,7 @@ def web_fetch(url: str) -> str:
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as d:
-        root = Path(d)
+        root = pathlib.Path(d)
         (root / "src").mkdir()
         (root / "src/a.ts").write_text("export const x = 1;\n")
         (root / "external").mkdir()
