@@ -42,7 +42,7 @@
 
 ### 2. 复制这一整段贴进终端
 
-把最后一行的 `把你的key贴这里` 换成上一步复制的 key，然后整段一起跑：
+整段一起跑，最后一行会提示你粘贴 key：
 
 ```bash
 # 装 llm CLI
@@ -53,19 +53,18 @@ mkdir -p "$(dirname "$(llm logs path)")"
 curl -fsSL https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/extra-openai-models.yaml \
   -o "$(dirname "$(llm logs path)")/extra-openai-models.yaml"
 
-# 存 key
-echo 'export OLLAMA_API_KEY=把你的key贴这里' >> ~/.zshenv && chmod 600 ~/.zshenv
-source ~/.zshenv
+# 存 key（会提示你粘贴，不会进 shell 历史）
+llm keys set ollama
 ```
 
-⚠️ **key 要写进 `.zshenv`，不是 `.zshrc`。** Claude Code 每次执行命令都新开一个非交互
-shell，而 zsh 非交互模式只读 `.zshenv`。写进 `.zshrc` 的症状特别阴：你在终端里手敲验证
-命令能通，但 skill 一跑就报 `OLLAMA_API_KEY 未设置` 然后停——很容易查半天。
+`llm` 会把它写进配置目录下的 `keys.json`，权限 0600。**别改用环境变量**——环境变量会被
+你启动的每个子进程继承，而且所有 OpenAI 兼容模型都回退到**同一个** `OPENAI_API_KEY`，
+根本没法给不同模型配不同的 key（见[混用供应商](#混用供应商)）。
 
 跑完当场验一下，出一句话就说明 key、端点、模型三样都对了：
 
 ```bash
-NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "用一句话说说你是谁"
+NO_PROXY='ollama.com' llm -m glm "用一句话说说你是谁"
 ```
 
 ### 3. 在 Claude Code 里装 plugin
@@ -77,6 +76,40 @@ NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "用一句话说说你�
 
 重开 Claude Code，说一句「会诊一下 xxx」试试。
 
+## 混用供应商
+
+五家没有绑死在一个供应商上。`extra-openai-models.yaml` 里**每个条目各自带** `api_base`
+和 `api_key_name`，所以任何一家都能单独指到任何 OpenAI 兼容端点——厂商官方 API、网关、
+本地服务、私有部署都行，其余几家原地不动。
+
+先把新 key 存一次：
+
+```bash
+llm keys set deepseek
+```
+
+再把那一个模型指过去：
+
+```yaml
+- model_id: deepseek-flash
+  model_name: deepseek-v4-flash              # 厂商自己的模型名
+  api_base: "https://api.deepseek.com/v1"    # 不再走网关
+  api_key_name: deepseek                     # 不再用 ollama 那个 key
+  reasoning: true
+```
+
+`model_id` 是 skill 用的别名，所以改它指向哪里，**skill 一个字都不用动**。
+
+动手前有两件事要知道：
+
+- **绝不要在扇出命令里加 `--key`。** 显式 key 的优先级高于文件里所有 `api_key_name`，
+  会**悄悄**把五家全都赶到同一个供应商上。仓里的命令是刻意不带它的。
+- **思考档位各家不一样。** ollama cloud 认 `none/low/medium/high/max`；
+  DeepSeek 官方认 `none/minimal/low/medium/high/xhigh/max`。两家都认 `max`（skill 发的
+  就是这个），但如果某个供应商根本不认这个字段，整个调用会失败——接进来之前先手测一个。
+
+走官方顺带是一次**诊断**：某家经过网关时不稳、直连厂商端点却稳定，那问题在网关，不在模型。
+
 ## 三个坑
 
 1. **key 不在这个仓里，也永远不该进来。** 每人用自己的 key、自己的账。
@@ -86,7 +119,7 @@ NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "用一句话说说你�
    别删；挂了代理而漏了它 → 全部 `Connection error`。
 
 3. **模型名会漂。** `setup/extra-openai-models.yaml` 锁的是具体版本
-   （`glm-5.2`、`kimi-k2.7-code` 等）。哪天报 model not found，查当前目录再改：
+   （`glm-5.3`、`kimi-k2.7-code` 等）。哪天报 model not found，查当前目录再改：
 
    ```bash
    curl -s https://ollama.com/v1/models | jq -r '.data[].id'

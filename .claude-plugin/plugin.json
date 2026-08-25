@@ -1,11 +1,17 @@
 {
   "name": "panel",
-  "description": "Panel review by five non-Claude models. Fans one high-stakes question out to deepseek-flash / nemotron / glm / kimi / minimax on Ollama Cloud, in parallel at max reasoning effort, then reconciles the answers into a position matrix, consensus, adjudicated disagreements, and lone insights. Requires the llm CLI and your own OLLAMA_API_KEY — see README.",
+  "description": "Panel review by five non-Claude models. Fans one high-stakes question out to deepseek-flash / nemotron / glm / kimi / minimax in parallel at max reasoning effort — each model on its own configurable endpoint and key — then reconciles the answers into a position matrix, consensus, adjudicated disagreements, and lone insights. Requires the llm CLI and your own API key — see README.",
   "version": "0.1.0",
   "author": {
     "name": "heiyu"
   },
-  "keywords": ["panel", "consult", "multi-model", "review", "second-opinion"],
+  "keywords": [
+    "panel",
+    "consult",
+    "multi-model",
+    "review",
+    "second-opinion"
+  ],
   "license": "MIT",
   "homepage": "https://github.com/heiyuneo/claude-skills",
   "skills": "./skills/"

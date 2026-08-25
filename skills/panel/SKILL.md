@@ -1,6 +1,6 @@
 ---
 name: panel
-description: Run an external multi-model panel review and reconcile the results. Triggers on "panel", "panel this", "second opinion", "ask the outside models", "cross-check this", or /panel — and on 「会诊」「外部会诊」「问问外面的模型」「交叉验证」「让它们评评」. The panel is five non-Claude models on ollama cloud; for Claude's own models (opus/sonnet/fable) use the consult skill instead.
+description: Run an external multi-model panel review and reconcile the results. Triggers on "panel", "panel this", "second opinion", "ask the outside models", "cross-check this", or /panel — and on 「会诊」「外部会诊」「问问外面的模型」「交叉验证」「让它们评评」. The panel is five non-Claude models, each on its own configurable endpoint; for Claude's own models (opus/sonnet/fable) use the consult skill instead.
 argument-hint: [the question to review]
 allowed-tools: Read, Write, Grep, Glob, Bash
 context: fork
@@ -8,8 +8,12 @@ context: fork
 
 Convene an external panel review on $ARGUMENTS.
 
-The five panelists (all on ollama cloud, one OpenAI-compatible endpoint):
-`deepseek-flash` · `nemotron` · `glm` · `kimi` · `minimax`
+The five panelists: `deepseek-flash` · `nemotron` · `glm` · `kimi` · `minimax`
+
+Each one carries its own endpoint and its own key alias in `extra-openai-models.yaml`, so
+providers can be mixed freely — a model can sit on a vendor's own API while the rest go
+through a gateway. **Never pass `--key` on the command line**: an explicit key outranks
+every entry in that file and would silently force all five onto one provider.
 
 ## Language
 
@@ -64,7 +68,7 @@ Write the package to `$D/q.md` with Write (`$D` comes from the next step).
 
 ```bash
 export NO_PROXY='ollama.com'   # bypass a system proxy that can't reach ollama.com
-[ -n "$OLLAMA_API_KEY" ] || { echo "OLLAMA_API_KEY not set — stopping"; exit 1; }
+llm keys list 2>/dev/null | grep -q . || { echo "No API keys stored — run: llm keys set ollama"; exit 1; }
 D=~/.claude/panel-runs/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D/out" && echo "$D"
 ```
@@ -73,7 +77,7 @@ Once the package is written to `$D/q.md`:
 
 ```bash
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
+  | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} -o reasoning_effort max < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
 for f in out/*.md; do
   s=$(wc -c < "$f"); n=$(basename "$f" .md); e=$(cat "out/$n.err")
   if   [ "$s" -lt 200 ]; then echo "ABSENT     $n (${s}B) $e"
@@ -200,7 +204,7 @@ cd "$D"
   done
 } > r2.md
 mkdir -p out2 && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} --key "$OLLAMA_API_KEY" -o reasoning_effort max < r2.md > out2/{}.md 2> out2/{}.err || echo "PANELIST FAILED exit=$?" >> out2/{}.err'
+  | xargs -P5 -I{} sh -c 'timeout 360 llm -m {} -o reasoning_effort max < r2.md > out2/{}.md 2> out2/{}.err || echo "PANELIST FAILED exit=$?" >> out2/{}.err'
 grep -c "^### Answer" r2.md; wc -c out2/*.md
 ```
 
@@ -216,7 +220,7 @@ endorsed moves up alongside the consensus.
 
 ```bash
 # endpoint + key + model id, all three at once (should print one sentence)
-NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "Introduce yourself in one sentence."
+NO_PROXY='ollama.com' llm -m glm "Introduce yourself in one sentence."
 
 llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # are the aliases registered
 curl -s https://ollama.com/v1/models | jq -r '.data[].id'          # live catalog, for swapping models

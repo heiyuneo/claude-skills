@@ -11,7 +11,7 @@ deserve better than that: should this module be split out, does this concurrent 
 a race I can't see, is this PR safe to ship.
 
 Install this and you say "panel this" — it packages your question *along with the relevant
-code* and fans it out to five **non-Claude** models on [Ollama Cloud](https://ollama.com)
+code* and fans it out to five **non-Claude** models
 (DeepSeek, Nemotron, GLM, Kimi, MiniMax), all in parallel, all at max reasoning effort.
 Claude then takes the five opinions back and reconciles them into four parts:
 
@@ -49,8 +49,6 @@ borrow someone else's.
 
 ### 2. Paste this whole block into a terminal
 
-Replace `paste-your-key-here` on the last line with the key from step 1, then run the lot:
-
 ```bash
 # install the llm CLI
 uv tool install llm                 # no uv? use: brew install llm
@@ -60,20 +58,19 @@ mkdir -p "$(dirname "$(llm logs path)")"
 curl -fsSL https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/extra-openai-models.yaml \
   -o "$(dirname "$(llm logs path)")/extra-openai-models.yaml"
 
-# store the key
-echo 'export OLLAMA_API_KEY=paste-your-key-here' >> ~/.zshenv && chmod 600 ~/.zshenv
-source ~/.zshenv
+# store the key (prompts for it — nothing lands in your shell history)
+llm keys set ollama
 ```
 
-⚠️ **The key goes in `.zshenv`, not `.zshrc`.** Claude Code spawns a fresh non-interactive
-shell for every command, and non-interactive zsh only reads `.zshenv`. Put it in `.zshrc`
-and the check below will pass when you type it yourself, but the skill will bail with
-`OLLAMA_API_KEY not set` the moment it runs — a genuinely annoying half hour to debug.
+`llm` writes it to `keys.json` beside that config file, mode 0600. **Don't put it in an
+environment variable instead** — env vars get inherited by every process you launch, and
+because every OpenAI-compatible model falls back to the *same* `OPENAI_API_KEY`, they
+can't express per-model keys at all (see [Mixing providers](#mixing-providers)).
 
 Check it right away. One sentence back means key, endpoint and model are all correct:
 
 ```bash
-NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "Introduce yourself in one sentence."
+NO_PROXY='ollama.com' llm -m glm "Introduce yourself in one sentence."
 ```
 
 ### 3. Install the plugin in Claude Code
@@ -85,6 +82,45 @@ NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "Introduce yourself in 
 
 Restart Claude Code and say "panel this: ...".
 
+## Mixing providers
+
+Nothing ties the panel to one vendor. Every entry in `extra-openai-models.yaml` carries its
+own `api_base` and its own `api_key_name`, so any panelist can be routed to any
+OpenAI-compatible endpoint — a vendor's own API, a gateway, a local server, a private
+deployment — while the rest stay where they are.
+
+Store the extra key once:
+
+```bash
+llm keys set deepseek
+```
+
+Then point that one model at it:
+
+```yaml
+- model_id: deepseek-flash
+  model_name: deepseek-v4-flash              # vendor's own name for it
+  api_base: "https://api.deepseek.com/v1"    # instead of the gateway
+  api_key_name: deepseek                     # instead of: ollama
+  reasoning: true
+```
+
+The `model_id` is the alias the skill uses, so changing where it points doesn't touch the
+skill at all.
+
+Two things worth knowing before you do this:
+
+- **Never add `--key` to the fan-out command.** An explicit key outranks every `api_key_name`
+  in the file and silently forces all five models onto one provider. The shipped commands
+  deliberately don't use it.
+- **Effort tiers differ by provider.** Ollama Cloud accepts
+  `none/low/medium/high/max`; DeepSeek's own API accepts `none/minimal/low/medium/high/xhigh/max`.
+  Both honour `max`, which is what the skill sends, but a provider that rejects the field
+  outright will fail the whole call — test one model by hand before wiring it in.
+
+Going direct is also a diagnostic: if a panelist is unreliable through a gateway and stable
+on the vendor's own endpoint, the gateway was the problem, not the model.
+
 ## Three things that will bite you
 
 1. **No key ships in this repo, and none ever should.** Everyone uses their own key on
@@ -95,7 +131,7 @@ Restart Claude Code and say "panel this: ...".
    `ollama.com` and every call dies with `Connection error`.
 
 3. **Model names drift.** `setup/extra-openai-models.yaml` pins specific versions
-   (`glm-5.2`, `kimi-k2.7-code`, …). When you get a "model not found", check what's
+   (`glm-5.3`, `kimi-k2.7-code`, …). When you get a "model not found", check what's
    live and edit the file:
 
    ```bash

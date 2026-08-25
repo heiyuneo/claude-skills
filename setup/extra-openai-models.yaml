@@ -1,7 +1,17 @@
-# Ollama Cloud (OpenAI-compatible endpoint) — the five panelists.
+# The five panelists. Each entry carries its own endpoint and its own key alias, so you can
+# mix providers freely — route one model to a vendor's own API and leave the rest on a
+# gateway, or give every model a different provider.
 #
-# No key on disk: `api_key_name` only makes llm accept a --key flag; the actual value is
-# passed per call as --key "$OLLAMA_API_KEY".
+# Store each alias once, then never pass --key on the command line (an explicit --key
+# outranks these entries and would force every model onto one provider):
+#
+#   llm keys set ollama
+#   llm keys set deepseek
+#
+# llm writes them to keys.json in this directory with mode 0600. Prefer that over an
+# environment variable: env vars leak into every child process you spawn, and every
+# OpenAI-compatible model here falls back to the *same* OPENAI_API_KEY, so env vars cannot
+# express per-provider keys at all.
 #
 # `reasoning: true` is what exposes the `reasoning_effort` option. Without it llm won't
 # let you set it, and the panel silently runs at the server default instead of max.
@@ -13,10 +23,13 @@
 # Live catalog, for when a model name drifts:
 #   curl -s https://ollama.com/v1/models | jq -r '.data[].id'
 
+# Routed to DeepSeek's own API rather than the gateway. Two reasons: this was the least
+# reliable panelist on the gateway (2 runaways + 2 silent empty returns in 14 calls), and
+# the vendor's endpoint accepts a wider effort range (none/minimal/low/medium/high/xhigh/max).
 - model_id: deepseek-flash
-  model_name: deepseek-v4-flash:0731
-  api_base: "https://ollama.com/v1"
-  api_key_name: ollama
+  model_name: deepseek-v4-flash
+  api_base: "https://api.deepseek.com/v1"
+  api_key_name: deepseek
   reasoning: true
 
 - model_id: nemotron
@@ -25,10 +38,13 @@
   api_key_name: ollama
   reasoning: true
 
+# Routed to Zhipu's own API: it carries glm-5.3, one release ahead of the gateway's 5.2.
+# The docs call this endpoint non-OpenAI-compatible; in practice the OpenAI request shape
+# works and llm drives it fine. Effort range: none/minimal/low/medium/high/xhigh/max.
 - model_id: glm
-  model_name: glm-5.2
-  api_base: "https://ollama.com/v1"
-  api_key_name: ollama
+  model_name: glm-5.3
+  api_base: "https://open.bigmodel.cn/api/paas/v4"
+  api_key_name: zhipu
   reasoning: true
 
 - model_id: kimi
