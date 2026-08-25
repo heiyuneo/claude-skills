@@ -1,110 +1,135 @@
 # heiyu-claude-skills
 
-自用 Claude Code skill 合集。目前一个：**panel — 外部多模型会诊**。
+Claude Code skills. Currently one: **panel — an external multi-model panel review.**
 
-[English →](./README.en.md)
+[中文说明 →](./README.zh.md)
 
-## panel — 让五个外部大模型给你会诊
+## panel — five outside models, called in for a second opinion
 
-平时在 Claude Code 里问问题，答你的就一个模型。但有些决定不敢只听一家的：这个模块要不要拆、这段并发代码有没有暗坑、上线前这个 PR 稳不稳。
+Normally when you ask Claude Code something, exactly one model answers. Some decisions
+deserve better than that: should this module be split out, does this concurrent write have
+a race I can't see, is this PR safe to ship.
 
-装上它之后，你说一句「会诊一下 xxx」，它会把问题连同相关代码一起打包，**同时**甩给五个**非 Claude** 的模型（DeepSeek、Nemotron、GLM、Kimi、MiniMax），五家并发跑，然后 Claude 把五份意见收回来，整理成四段给你：
+Install this and you say "panel this" — it packages your question *along with the relevant
+code* and fans it out to five **non-Claude** models on [Ollama Cloud](https://ollama.com)
+(DeepSeek, Nemotron, GLM, Kimi, MiniMax), all in parallel, all at max reasoning effort.
+Claude then takes the five opinions back and reconciles them into four parts:
 
-- **谁支持谁反对** —— 一张表，一眼看完
-- **大家都同意的** —— 这部分基本可以放心
-- **吵起来的地方** —— Claude 会去读你的代码，自己判谁对
-- **只有一家提到、但确实有道理的** —— 这块往往最值钱
+| Section | What goes in it |
+|---|---|
+| **Position matrix** | Every issue × every model — agrees / disagrees / didn't mention |
+| **Consensus** | Where three or more independently landed in the same place |
+| **Disagreements** | The actual arguments on each side, plus an adjudication |
+| **Lone insights** | Points only one model raised that survive scrutiny — often the most valuable part |
 
-有两条规矩挺关键：**不告诉那五家你倾向哪个方案**（不然它们会一起顺着你说，给你一个假共识）；**不按票数决定**（五家训练数据高度重叠，可能一起犯同一个错，孤零零的少数派反而常常是对的）。
+Two rules the skill enforces on itself:
 
-### 什么时候别用
+- **It never decides by vote count.** These five share a lot of training data and can be
+  confidently wrong together; a lone dissent is often the correct one. Claims get weighed
+  by argument quality and by whether they can be checked against code or a real test.
+- **It never tells the panel your preferred answer.** Stating a leaning anchors all five
+  models at once and manufactures a consensus that isn't real.
 
-起名字、写个工具函数、你心里其实已经有答案只是想找人点个头 —— 这些不值。
+## When to use it
 
-判断标准就一句：**这事要是搞错了，返工成本大不大？** 大就会诊，小就算了。
+Use it when **being wrong is expensive to undo**: architecture calls, a security surface
+before launch, a technology choice you'll live with for a year.
 
-一次两三分钟（五家在慢慢想，思考档拉满了），花几毛到几块钱。
+Don't use it for naming things, writing a utility function, or anything where you already
+have an answer and just want agreement. That last one only buys you a fake consensus.
 
-### 怎么用
+## Install (two minutes, three steps)
 
-```
-/panel 这个订单状态机要不要拆成独立服务
-会诊一下 src/sync/ 这段并发写入，有没有我没看到的竞态
-```
+### 1. Get an Ollama key first
 
-## 装（两分钟，三步）
+Go to <https://ollama.com/settings/keys>, sign in, hit **Create key**, copy it.
 
-### 1. 先拿一个 Ollama key
+⚠️ **Bring your own.** Ollama Cloud is metered and bills to whoever's key it is. Don't
+borrow someone else's.
 
-打开 <https://ollama.com/settings/keys>，登录后点 **Create key**，复制出来备用。
+### 2. Paste this whole block into a terminal
 
-⚠️ **必须用你自己的 key。** ollama 是按量计费的，谁的 key 谁付钱，别问别人要。
-
-### 2. 复制这一整段贴进终端
-
-把最后一行的 `把你的key贴这里` 换成上一步复制的 key，然后整段一起跑：
+Replace `paste-your-key-here` on the last line with the key from step 1, then run the lot:
 
 ```bash
-# 装 llm CLI
-uv tool install llm                 # 没有 uv 就用： brew install llm
+# install the llm CLI
+uv tool install llm                 # no uv? use: brew install llm
 
-# 下载模型别名配置（告诉 llm 那五个模型叫什么、去哪找）
+# fetch the model aliases (tells llm what the five models are called and where to find them)
 mkdir -p "$(dirname "$(llm logs path)")"
 curl -fsSL https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/extra-openai-models.yaml \
   -o "$(dirname "$(llm logs path)")/extra-openai-models.yaml"
 
-# 存 key
-echo 'export OLLAMA_API_KEY=把你的key贴这里' >> ~/.zshenv && chmod 600 ~/.zshenv
+# store the key
+echo 'export OLLAMA_API_KEY=paste-your-key-here' >> ~/.zshenv && chmod 600 ~/.zshenv
 source ~/.zshenv
 ```
 
-⚠️ **key 要写进 `.zshenv`，不是 `.zshrc`。** Claude Code 每次执行命令都新开一个非交互
-shell，而 zsh 非交互模式只读 `.zshenv`。写进 `.zshrc` 的症状特别阴：你在终端里手敲验证
-命令能通，但 skill 一跑就报 `OLLAMA_API_KEY 未设置` 然后停——很容易查半天。
+⚠️ **The key goes in `.zshenv`, not `.zshrc`.** Claude Code spawns a fresh non-interactive
+shell for every command, and non-interactive zsh only reads `.zshenv`. Put it in `.zshrc`
+and the check below will pass when you type it yourself, but the skill will bail with
+`OLLAMA_API_KEY not set` the moment it runs — a genuinely annoying half hour to debug.
 
-跑完当场验一下，出一句话就说明 key、端点、模型三样都对了：
+Check it right away. One sentence back means key, endpoint and model are all correct:
 
 ```bash
-NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "用一句话说说你是谁"
+NO_PROXY='ollama.com' llm -m glm --key "$OLLAMA_API_KEY" "Introduce yourself in one sentence."
 ```
 
-### 3. 在 Claude Code 里装 plugin
+### 3. Install the plugin in Claude Code
 
 ```
 /plugin marketplace add heiyuneo/claude-skills
 /plugin install panel@heiyu-claude-skills
 ```
 
-重开 Claude Code，说一句「会诊一下 xxx」试试。
+Restart Claude Code and say "panel this: ...".
 
-## 三个坑
+## Three things that will bite you
 
-1. **key 不在这个仓里，也永远不该进来。** 每人用自己的 key、自己的账。
-   谁把 key 提交进来谁请客。
+1. **No key ships in this repo, and none ever should.** Everyone uses their own key on
+   their own account.
 
-2. **`NO_PROXY='ollama.com'`**：skill 里的命令都带着它。没挂代理的机器上完全无害，
-   别删；挂了代理而漏了它 → 全部 `Connection error`。
+2. **`NO_PROXY='ollama.com'`** — every command in the skill carries it. Harmless on a
+   machine with no proxy, so leave it in. Drop it behind a proxy that can't reach
+   `ollama.com` and every call dies with `Connection error`.
 
-3. **模型名会漂。** `setup/extra-openai-models.yaml` 锁的是具体版本
-   （`glm-5.2`、`kimi-k2.7-code` 等）。哪天报 model not found，查当前目录再改：
+3. **Model names drift.** `setup/extra-openai-models.yaml` pins specific versions
+   (`glm-5.2`, `kimi-k2.7-code`, …). When you get a "model not found", check what's
+   live and edit the file:
 
    ```bash
    curl -s https://ollama.com/v1/models | jq -r '.data[].id'
    ```
 
-## 排障
+## Cost and latency
 
-| 症状 | 原因 |
+Five models run concurrently, so wall-clock is whatever the slowest one takes: roughly
+12 seconds for a short question, but **minutes** for a real one with code pasted in at
+max reasoning effort. The skill deliberately sends **no `max_tokens`** and always uses
+`reasoning_effort: max` — a panel exists to get the full argument, and truncating the
+reasoning defeats the point. Budget your tool timeout accordingly (the skill uses 900s).
+
+## Troubleshooting
+
+| Symptom | Cause |
 |---|---|
-| 全部 401 | key 没读到，或已轮换 |
-| 全部 `Connection error` | 漏了 `NO_PROXY='ollama.com'` |
-| model not found | 模型名漂了，见坑 3 |
+| All five return 401 | Key not picked up, or rotated |
+| All five `Connection error` | Missing `NO_PROXY='ollama.com'` |
+| `model not found` | Model name drifted — see #3 above |
 
 ```bash
-llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # 别名注册上没
-llm logs -n 5                                                     # 历史问答都在本地 SQLite
+llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # are the aliases registered
+llm logs -n 5                                                     # every past exchange, in local SQLite
 ```
 
-## 更新
+## Updating
 
-推到这个仓之后，同事各自 `/plugin marketplace update heiyu-claude-skills` 就能收到。
+```
+/plugin marketplace update heiyu-claude-skills
+/plugin update panel
+```
+
+## License
+
+MIT

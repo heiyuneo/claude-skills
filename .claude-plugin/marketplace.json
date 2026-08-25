@@ -4,14 +4,14 @@
     "name": "heiyu"
   },
   "metadata": {
-    "description": "自用 Claude Code skill 合集",
+    "description": "Claude Code skills by heiyu",
     "version": "0.1.0"
   },
   "plugins": [
     {
       "name": "panel",
       "source": "./",
-      "description": "外部多模型会诊：把一个高赌注问题同时发给 ollama cloud 上五家非 Claude 模型（deepseek-flash / nemotron / glm / kimi / minimax），汇总成立场矩阵、共识区、分歧区、独有洞察四段。",
+      "description": "Panel review by five non-Claude models. Fans one high-stakes question out to deepseek-flash / nemotron / glm / kimi / minimax on Ollama Cloud, in parallel at max reasoning effort, then reconciles the answers into a position matrix, consensus, adjudicated disagreements, and lone insights.",
       "version": "0.1.0",
       "author": {
         "name": "heiyu"

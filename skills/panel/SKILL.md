@@ -1,7 +1,7 @@
 ---
 name: panel
-description: 组织一次外部多模型会诊并汇总结论。用户说"会诊""外部会诊""问问外面的模型""交叉验证""让它们评评""/panel"时触发。会诊对象是 ollama cloud 上的五家非 Claude 模型；要找 opus/sonnet/fable 这些自家模型请改用 consult skill。
-argument-hint: [要会诊的问题]
+description: Run an external multi-model panel review and reconcile the results. Triggers on "panel", "panel this", "second opinion", "ask the outside models", "cross-check this", or /panel — and on 「会诊」「外部会诊」「问问外面的模型」「交叉验证」「让它们评评」. The panel is five non-Claude models on ollama cloud; for Claude's own models (opus/sonnet/fable) use the consult skill instead.
+argument-hint: [the question to review]
 allowed-tools: Read, Grep, Glob, Bash
 context: fork
 ---
@@ -37,7 +37,7 @@ context: fork
 
 ```bash
 export NO_PROXY='ollama.com'   # 本机系统代理对 ollama.com 不通，必须绕开
-[ -n "$OLLAMA_API_KEY" ] || { echo "OLLAMA_API_KEY 未设置，停"; exit 1; }
+[ -n "$OLLAMA_API_KEY" ] || { echo "OLLAMA_API_KEY not set — stopping / 未设置，停"; exit 1; }
 D=~/.claude/panel-runs/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D/out" && echo "$D"
 ```
