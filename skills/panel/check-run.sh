@@ -22,6 +22,17 @@ else echo "❌ baseline.md 缺失"; fi
 if [ -f "$D/summary.md" ]; then echo "✅ summary.md    $(wc -c < "$D/summary.md" | tr -d ' ')B"
 else echo "❌ summary.md 缺失 —— fork 写不了盘，调用方没照末尾那句落盘"; fi
 
+# baseline 的条目应当逐条变成矩阵里的一行（标 source: baseline）。数不上就是漏填了——
+# 而漏填的恰恰是「五家全没提」的那些行，也就是集体盲区唯一的显影方式。
+if [ -f "$D/baseline.md" ] && [ -f "$D/summary.md" ]; then
+  # grep -c 无匹配时会打印 0 并返回 1；别再接 `|| echo 0`，那会拼出 "0\n0"
+  b=$(grep -cE '^[[:space:]]*[0-9]+[.、)]' "$D/baseline.md" 2>/dev/null); b=${b:-0}
+  m=$(grep -ciE 'source: *baseline|源[:：] *baseline' "$D/summary.md" 2>/dev/null); m=${m:-0}
+  if [ "$b" -eq 0 ]; then echo "⚠️  baseline 没有编号条目 —— §2 要求它以「最多五条」的清单收尾"
+  elif [ "$m" -ge "$b" ]; then echo "✅ baseline 条目 ${b} 条，矩阵里标注 ${m} 行"
+  else echo "❌ baseline ${b} 条，矩阵只标了 ${m} 行 —— 少的那些正是「五家全没提」的行"; fi
+fi
+
 echo
 echo "出席（阈值：<200 ABSENT / <3000 UNUSABLE，两者都算缺席）"
 miss=0; n=0

@@ -22,7 +22,8 @@ because every OpenAI-compatible model falls back to the same `OPENAI_API_KEY`.
 ## Language
 
 **Write the question package and the final summary in the language the user asked in.**
-Chinese question → Chinese package, Chinese summary (立场矩阵 / 共识区 / 分歧区 / 独有洞察).
+Chinese question → Chinese package, Chinese summary
+(立场矩阵 / 共识区 / 分歧区 / 独有洞察 / 未覆盖·未核实).
 English question → English throughout. Never mix: one language end to end.
 
 ## 0. When not to convene
@@ -32,9 +33,11 @@ manufactures a fake consensus, which is worse than no panel at all.
 
 ## 1. Build the question package
 
-The panel can search the web (§2), but it **cannot see this conversation and cannot read
-the repo**. Everything from either has to be handed over by hand. Use Read/Grep to pull the
-real content, then assemble:
+The panel can search the web and read the repository (§2), but it **cannot see this
+conversation**, and it will not find its way around a codebase you know far better. Hand
+over the load-bearing material yourself — a panelist that has to go hunting for the central
+file spends its budget navigating instead of thinking. Use Read/Grep to pull the real
+content, then assemble:
 
 - Background and stack (one line)
 - The goal and the hard constraints
@@ -125,6 +128,12 @@ influence of a strong opinion, and a `baseline.md` written afterwards is just an
 that it was. That auditability is the whole mechanism — the file works by existing on disk
 before the first answer can anchor you, and by leaving the user a record of how far the final
 verdict moved from your prior. Do not skip it because you feel unbiased.
+
+**End it with a numbered list: the sharpest points you believe this question turns on, at
+most five, one line each.** Prose cannot be checked against anything mechanically; a list
+can, and §3 turns each entry into a row of the position matrix whether or not any panelist
+raised it. Write the list before you have seen a single answer, which is the only moment it
+can be written honestly.
 
 Once `$D/q.md` and `$D/baseline.md` are both written:
 
@@ -330,6 +339,16 @@ not. A baseline nobody compares against is filing, not calibration.
    rejected** / didn't mention). The fourth state matters: "didn't mention" otherwise
    swallows four different things, and a rejected-on-purpose position is evidence, not
    silence. Mark any TRUNCATED panelist's row so its gaps aren't read as positions.
+
+   **The rows come from two sources, not one: every issue the panel raised, *and* every
+   entry on your `baseline.md` list — mark those `(source: baseline)`.** Without the second
+   source the matrix physically cannot state a blind spot: rows are harvested from the
+   answers, so a point all five missed has no row at all and simply never appears. With it,
+   the same point renders as **an entire row of "didn't mention"**, which is what a
+   correlated blind spot actually looks like. Measured: five panelists, three with repo
+   tools, 155 repo calls between them, and **0/5** noticed that the client never verifies
+   signatures — it reached the summary only because the reconciler happened to compare
+   against the baseline by hand. This rule replaces that recollection with a filled-in row.
 2. **Consensus** — where three or more landed in the same place. **Check their assumption
    lists (§1) before labelling it high-confidence.** If they agree *and* their assumptions
    overlap heavily, that is convergence from a shared starting point — say "converged, and
@@ -373,15 +392,45 @@ sufficient.
 
 5. **Not covered, not verified** — dimensions the package never asked about, gaps several
    panelists named under requirement #3, and every load-bearing claim you did **not**
-   check. Without this section the four tidy headings above read as completeness, and the
+   check.
+
+   **Say where the matrix ends.** Its rows have exactly two sources — the panel, and your
+   baseline list — so anything neither you nor any panelist thought of has no row and is
+   not merely unanswered but *unstatable* in this report. There is no cheap mechanism for
+   that residue; the honest move is one sentence admitting the boundary, in the same spirit
+   as the ceiling admitted above. A reader who knows the shape of the hole can go looking;
+   a reader shown five tidy headings cannot. Without this section the four tidy headings above read as completeness, and the
    reader has no way to tell a checked claim from an unchecked one.
 
-**Mark every load-bearing claim that enters your recommendation** as `[verified <path:line
-or URL>]` or `[unverified]`. Bounded on purpose — not every sentence, only what the
-recommendation rests on. You have Read, and the panel now has repo and web tools, so an
-unverified load-bearing claim is a choice, and the reader deserves to see which ones you
-made. The rate this guards against is measured: of six "measured" claims fact-checked
-across two runs, **four were fabricated**.
+**Mark every load-bearing claim that enters your recommendation**, with one of three
+stamps. Bounded on purpose — not every sentence, only what the recommendation rests on:
+
+- `[verified-static <path:line or URL>]` — an artifact exists and says this. Code, config,
+  SQL, docs, a fetched page.
+- `[verified-live <command / query / log>]` — the state of the world was actually probed.
+  A query that returned rows, a deployment record, a log line, a run you performed.
+- `[unverified]`
+
+The rate this guards against is measured: of six "measured" claims fact-checked across two
+runs, **four were fabricated**.
+
+**A static artifact cannot verify a claim about execution.** Any claim that something
+*happened*, *is running*, *has been populated*, *was deployed* is a claim about world state,
+and `verified-static` does not support it — not as a judgement call but as a type error you
+can see in the line itself, because the stamp names what kind of evidence it is and the
+tense is right there in the sentence. Two legal moves when you hit one: **write it down
+degraded** ("the recipe exists; whether it has run is unknown") or go get live evidence.
+
+**Degrading is a complete answer.** You are not obliged to probe production, and you must
+not acquire `verified-live` by running anything with side effects. The point is that the
+claim stops being able to *masquerade* as verified, not that every claim must reach live
+evidence.
+
+Why this shape: the failure it catches is not fabrication. Two panelists once reported that
+a database "had been seeded with celebrity identities" when the repository proved only that
+a seed script and a deploy recipe existed — **every path and line number they cited was
+real**, so the old two-valued stamp had nothing to object to. It was caught by the
+reconciler happening to ask "but has it run?". This rule is that question, compiled.
 
 **Deliver the whole summary as the text of your answer, in full — never a digest of itself
 with the detail left in a file.** The step that compresses 80 KB of argument into five
@@ -440,7 +489,7 @@ With round one done and `$D` still present:
 cd "$D"
 { cat q.md
   echo; echo "---"
-  echo "Below are independent answers to the question above, with authorship removed. Assess each one's **argument quality** (not whether its position is popular), rank them and justify the ranking. If any of them raises a point none of the others did that holds up, call it out separately."
+  echo "Below are independent answers to the question above, with authorship removed. Assess each one's **argument quality** (not whether its position is popular), rank them and justify the ranking. If any of them raises a point none of the others did that holds up, call it out separately. Finally: if there is an important issue that *every* answer here missed, name it — you can see all of them at once, which none of their authors could."
   i=0
   for f in out/*.md; do
     [ "$(wc -c < "$f")" -lt 3000 ] && continue   # skip ABSENT and UNUSABLE alike

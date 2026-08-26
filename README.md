@@ -39,6 +39,24 @@ confirmation and stamps your own prior as verified:
 - **Confidence follows attendance.** 5/5 states conclusions plainly, 4/5 hedges, 3/5 has to
   say out loud that the consensus may be an artifact of who happened to answer.
 
+Two more that exist because of specific failures, and are worth knowing as a *reader* of a
+summary:
+
+- **Every load-bearing claim carries one of three stamps** — `verified-static` (an artifact
+  says so), `verified-live` (the world was actually probed), or `unverified` — and **a
+  static artifact may not verify a claim about execution**. Two panelists once reported a
+  database "had been seeded" when the repo proved only that a seed script and a deploy
+  recipe existed; every path and line they cited was real, so a two-valued stamp had nothing
+  to object to. The three-valued one makes that a visible type error rather than a question
+  someone has to remember to ask.
+- **Claude writes its own answer before the fan-out, as a short numbered list, and every
+  entry becomes a row of the matrix** — marked `(source: baseline)`, whether or not any
+  panelist raised it. Matrix rows are otherwise harvested from the answers, so a point all
+  five missed would have no row and would simply never appear. Measured: five panelists,
+  three with repo access and 155 repo lookups between them, and **none** noticed that one
+  system verified signatures on the server but never on the client. With this rule it shows
+  up as an entire row of "didn't mention", which is what a shared blind spot looks like.
+
 ## When to use it
 
 Use it when **being wrong is expensive to undo**: architecture calls, a security surface
