@@ -28,9 +28,9 @@ manufactures a fake consensus, which is worse than no panel at all.
 
 ## 1. Build the question package
 
-The panel can read the repository and search the web (§2), but it **cannot see this conversation**, and it does not know which files matter. Hand over
-everything anyway: the tools are for verifying and for finding what you missed, not a
-substitute for curation. Use Read/Grep to pull the real content, then assemble:
+The panel can search the web (§2), but it **cannot see this conversation and cannot read
+the repo**. Everything from either has to be handed over by hand. Use Read/Grep to pull the
+real content, then assemble:
 
 - Background and stack (one line)
 - The goal and the hard constraints
@@ -40,10 +40,8 @@ substitute for curation. Use Read/Grep to pull the real content, then assemble:
 - At most three specific questions
 
 **Never cap the answer length in the package** — no "keep it brief", no "three sentences".
-Capping the number of questions keeps them focused; capping the answer length just makes
-them cut the reasoning and hand back a bare verdict, and **the reasoning is the whole
-point** — the adjudication in §3 turns on whose argument holds up, not on whose conclusion
-sounds nicer.
+Capping questions keeps them focused; capping length makes them drop the reasoning, and
+**the reasoning is the whole point**: §3 adjudicates on whose argument holds up.
 
 **Always end the package with these two requirements:**
 
@@ -75,7 +73,6 @@ Write the package to `$D/q.md` with Write (`$D` comes from the next step).
 ```bash
 export NO_PROXY='ollama.com'   # bypass a system proxy that can't reach ollama.com
 llm keys list 2>/dev/null | grep -q . || { echo "No API keys stored — run: llm keys set ollama"; exit 1; }
-export PANEL_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 export TOOLS="$(dirname "$(llm logs path)")/panel_tools.py"
 D=~/.claude/panel-runs/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D/out" && echo "$D"
@@ -85,7 +82,7 @@ Once the package is written to `$D/q.md`:
 
 ```bash
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -I{} sh -c 'timeout 540 llm -m {} -o reasoning_effort max --functions "$TOOLS" --cl 6 < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
+  | xargs -P5 -I{} sh -c 'timeout 540 llm -m {} -o reasoning_effort max --functions "$TOOLS" --cl 25 < q.md > out/{}.md 2> out/{}.err || echo "PANELIST FAILED exit=$?" >> out/{}.err'
 for f in out/*.md; do
   s=$(wc -c < "$f"); n=$(basename "$f" .md); e=$(cat "out/$n.err")
   if   [ "$s" -lt 200 ]; then echo "ABSENT     $n (${s}B) $e"
@@ -98,38 +95,32 @@ sqlite3 "$(llm logs path)" "select model||' finish='||coalesce(json_extract(resp
 All five run concurrently, so wall-clock is whatever the slowest survivor takes, and
 `timeout 540` caps that at nine minutes. **Give the Bash call a 600000 timeout.**
 
-**The panel can check things.** `--functions` hands each panelist five read-only tools —
-`list_files`, `read_file`, `grep_repo` over the repo, and `web_search` / `web_fetch` over the
-public web — defined in `panel_tools.py`, which lives beside `extra-openai-models.yaml` in llm's config
-directory. `--cl 6` caps the total tool rounds, shared across all five.
+**The panel can check the outside world.** `--functions` gives each panelist `web_search`
+and `web_fetch` from `panel_tools.py`, beside `extra-openai-models.yaml` in llm's config
+directory. Panelists who cannot check anything invent instead — of six "measured" claims
+fact-checked across two runs, four were fabricated, and all of them were world facts. Search
+to find the source, fetch to read the primary page rather than reason from snippets.
 
-This exists because panelists that cannot check anything invent things instead: across two
-real runs, six "measured" claims were fact-checked and **four were fabricated**, delivered
-in exactly the same confident register as the true ones. The two tool families cover the two
-fabrication classes — repo tools for claims about this codebase, `web_search` and `web_fetch` for claims about the world,
-which is where the earlier fabrications clustered — search to find the source, fetch to read
-the primary page instead of reasoning from snippets about it. Repo access also routes around the
-curator's blind spot: an allow-list chosen by the curator could only ever confirm what the
-curator already thought was relevant, which is the one failure the tools exist to catch.
+`--cl 25` is a fuse, not a throttle: hitting the chain limit **kills the call outright**
+(exit 1, zero bytes), so it must sit above any real usage. It is per panelist — five
+separate processes, five separate counters. Time is bounded by `timeout`, never by `--cl`.
 
-**Tool access does not make their claims true.** It removes the excuse, not the risk — a
-model can still read one file and assert something about another. §3 still adjudicates.
+**Tool access does not make a claim true.** It removes the excuse, not the risk. §3 still
+adjudicates.
 
-The exposure boundary lives in `panel_tools.py`, not here: a deny-list (`external/`,
-`docs/research/`, `.git/`, `node_modules/`, `target/`), a 256KB per-file limit, and a 256KB
-total budget per panelist that **refuses rather than truncates** when exhausted — a model
-that knows it was refused says so; one handed half a file reasons confidently about the
-half it got. Set `PANEL_REPO_ROOT`; without it the tools disable themselves rather than
-guessing at a root.
+**Repo tools are deliberately absent.** `list_files`/`read_file`/`grep_repo` shipped here
+once and were withdrawn: one real exposure incident (a deny-list defeated by a git worktree
+copy), one silent false negative (`pathlib.glob` does not expand `{a,b}`, so a 85-second
+search answered "No matches" for text that was present), and zero usable answers out of ten
+attempts. `panel_tools.py` records the three conditions for bringing them back. Until then
+**§1 curation is the panel's only route to your code** — which is why the package must carry
+the real content, verbatim.
 
 **Three states, and all three matter:**
 
-- **ABSENT** (`.md` under 200 bytes) catches a silent failure: exit code 0, empty `.err`,
-  and a `.md` containing one newline. Observed once, with a 16KB package — three of five
-  came back that way on the first wave, `output_tokens` and `finish_reason` both null in
-  `llm logs`. Every package under 9KB has been fine. A byte check is the only thing that
-  catches it; the shortest legitimate answer in a real panel was 7620 bytes, so there is
-  no risk of a false kill.
+- **ABSENT** (`.md` under 200 bytes) is the only check that catches the silent failure:
+  exit 0, empty `.err`, and a `.md` holding one newline. The shortest real answer ever seen
+  was 7620 bytes, so the threshold cannot kill a good one.
 - **TRUNCATED** — either `.err` is non-empty (usually `exit=124`, killed at the 540s cap
   mid-stream) **or the log line says `finish=length`**, meaning the model hit the
   endpoint's token ceiling and stopped mid-sentence with a perfectly empty `.err`. The
@@ -142,15 +133,12 @@ guessing at a root.
 
 - **A per-panelist `timeout`, and the panel proceeds without the stragglers.** Without it
   one model hangs the whole review — the openai client's own default is 600 seconds. The
-  previous cap of 360 was measured: across 55 tool-free calls it killed both runaway
-  generations and zero legitimate answers (slowest honest completion: 354s). **540 is not
-  measured** — it is 360 plus room for six tool rounds, and it needs re-deriving from the
-  logs once enough tool-using panels have run. Until then, expect more TRUNCATED than
-  before, and name every absence.
-- **Never send `max_tokens`.** Each model stops when it is actually done. Runaways do
-  happen (twice in 55 calls, both `deepseek-flash`, both hitting the endpoint's own 65536
-  ceiling with `finish_reason: length`), but the wall-clock timeout is the fix for those —
-  a token cap would truncate honest answers, which have run as long as 17466 tokens.
+  360 was measured across 55 calls: it killed both runaways and zero legitimate answers
+  (slowest honest completion 354s). **540 is not measured** — re-derive it from the logs
+  once enough web-tool panels have run.
+- **Never send `max_tokens`.** Each model stops when it is done. Runaways happen (twice in
+  55 calls, hitting the endpoint's own 65536 ceiling), but `timeout` is the fix for those; a
+  token cap would truncate honest answers, which have run to 17466 tokens.
 
 **Re-run only when the panel lost its majority.** 1 absent → reconcile the rest and move on;
 re-running for one more opinion just doubles the wait. 2+ absent → re-run only those, once
@@ -210,17 +198,15 @@ unverified load-bearing claim is a choice, and the reader deserves to see which 
 made. The rate this guards against is measured: of six "measured" claims fact-checked
 across two runs, **four were fabricated**.
 
-Close with: **your final recommendation + what must still be verified in practice + the
-archive path `$D`**.
+**Write the whole summary to `$D/summary.md` first, then relay that file's contents as your
+answer.** In that order, always. The write is not filing — it is how the answer is produced,
+so skipping it and answering are the same act of not delivering. Everything else on this
+path leaves a trace; the step that compresses 80KB of argument into five headings runs in a
+fork and vanishes with it, and filling a matrix cell is itself a second act of curation by
+the same biased curator. Across the first ten runs, not one summary reached disk.
 
-**Then write the whole summary to `$D/summary.md`.** This is not bookkeeping; it is the one
-artifact that makes the adjudication auditable. Everything else in the pipeline leaves a
-trace — the package, the five answers, every tool call in llm's SQLite — but the step that
-compresses 80KB of argument into four headings runs in a fork and vanishes with it. Across
-the first ten runs, **not one produced a summary on disk**, so no one could ever check a
-matrix cell against what a panelist actually wrote. Filling a cell is itself a second act of
-curation, performed by the same biased curator, and until it is on disk it cannot be
-questioned.
+End the file with your final recommendation, what still needs verifying in practice, and
+the archive path `$D`.
 
 ## 4. Second round: anonymized peer review
 

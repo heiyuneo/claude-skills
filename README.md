@@ -160,37 +160,28 @@ llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # are the alia
 llm logs -n 5                                                     # every past exchange, in local SQLite
 ```
 
-## What the panel can read
+## What the panel can check
 
-Each panelist gets four read-only tools — `list_files`, `read_file`, `grep_repo` over the
-repo you invoke it from, plus `web_search` over the public web. They exist because a
-panelist that cannot check anything invents instead: across two real runs, six "measured"
-claims were fact-checked and **four were fabricated**, in the same confident tone as the
-true ones. Repo tools cover claims about your code; `web_search` covers claims about the
-world — library versions, whether an API exists, what a cited source actually says — which
-is where those fabrications clustered.
+Each panelist gets two tools, `web_search` and `web_fetch`, and nothing else. They exist
+because a panelist who cannot check anything invents instead: of six "measured" claims
+fact-checked across two runs, **four were fabricated**, in the same confident tone as the
+true ones — and all four were world facts (a library's version, whether an API exists, what
+a cited source says). Search finds the source; fetch reads the primary page rather than
+reasoning from snippets about it.
 
 `web_search` reuses the `ollama` key you already stored, so there is nothing extra to sign
-up for. Without that key it degrades to a clear "unavailable" message rather than failing.
+up for. Without it, both tools return a plain "unavailable" instead of failing. Each
+panelist may pull 192KB of web content before the tools start refusing.
 
-The boundary is in `setup/panel_tools.py`, and it is worth understanding before you point
-this at a private repo:
+**The panel cannot read your repository.** Tools that did (`list_files`, `read_file`,
+`grep_repo`) shipped once and were withdrawn after two measured runs: a deny-list defeated
+by a git worktree copy of excluded files, a search that spent 85 seconds and answered "No
+matches" for text that was present (`pathlib.glob` does not expand `{a,b}`), and zero usable
+answers out of ten attempts. `setup/panel_tools.py` states the conditions for reinstating
+them. A verification tool that lies is worse than none: it stamps a hallucination "checked".
 
-| Guard | Value |
-|---|---|
-| Excluded paths | `external/`, `docs/research/`, `.git/`, `node_modules/`, `target/` |
-| Per-file limit | 256KB |
-| Total per panelist | 256KB, and it **refuses** rather than truncating when spent |
-| Tool rounds | 6 (`--cl 6`), shared across all four tools |
-| Root | `PANEL_REPO_ROOT`; unset means the tools disable themselves |
-
-Edit the `DENY` tuple for your own repo — that list is the whole exposure decision. Note
-that a deny-list is deliberate: an allow-list would be chosen by the same curator whose
-blind spot the tools exist to route around, so it could only ever confirm what the curator
-already thought was relevant.
-
-Every tool call is recorded in llm's SQLite (`tool_calls`, `tool_results`), so you can audit
-afterwards exactly which files each model pulled.
+So what reaches the panel is exactly what Claude puts in the question package — you can read
+every one of them afterwards under `~/.claude/panel-runs/`.
 
 ## Updating
 

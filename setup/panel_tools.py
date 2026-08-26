@@ -1,144 +1,43 @@
-"""Read-only repo access for panel members, passed to `llm --functions`.
+"""Web lookup for panel members, passed to `llm --functions`.
 
-Why this exists: the panelists otherwise cannot verify anything. Across two real panel
-runs, six "measured" claims were fact-checked and four were fabricated — models with no
-way to check invent, and the invention arrives in the same confident tone as fact.
+Panelists that cannot check anything invent instead: of six "measured" claims fact-checked
+across two runs, four were fabricated, in the same confident register as the true ones.
+Those fabrications were world facts — library versions, whether an API exists, what a cited
+source actually says — which is exactly what these two tools cover.
 
-Exposure model: the curator no longer decides file-by-file what leaves the machine, so
-the boundary is drawn here instead — a deny-list, a byte budget, and a refusal (never a
-truncation) when the budget runs out. Set PANEL_REPO_ROOT to the repo being reviewed;
-without it the tools stay disabled rather than defaulting to somewhere surprising.
+Repo tools (list_files / read_file / grep_repo) lived here too and were removed. They cost
+one real exposure incident, one silent false negative, and 0 usable answers out of 10
+attempts across two tool-enabled runs. Three things must hold before they come back:
+
+  1. built on `git ls-files` / `git grep`, not `pathlib.glob` — the glob version took 85s a
+     call and answered "No matches" to `**/*.{md,ts}` because pathlib does not expand
+     braces. A verification tool that lies is worse than none: it stamps a hallucination
+     "checked". `git grep` did the same search correctly in 0.14s.
+  2. one panel completes end to end with them enabled;
+  3. that panel produces at least one finding the curated package did not already contain.
+
+Keep every import in `import x` form. `llm --functions` execs this file into a bare
+namespace and registers every non-underscore callable as a tool, so `from pathlib import
+Path` silently handed the panel a `Path` constructor described as "can make system calls".
 """
 
 import json
 import os
-import re
+import pathlib
 import urllib.error
 import urllib.request
-import pathlib
 
-DENY = ("external/", "docs/research/", ".git/", ".worktrees/", "node_modules/", "target/")
-MAX_READ = 256 * 1024      # any single file in a normal repo fits whole
-BUDGET = 256 * 1024        # the real gate: total bytes one panelist may pull
-GREP_HITS = 60
 WEB_RESULTS = 3            # results per search
 WEB_CHARS = 2500           # per-result content cap
-FETCH_CHARS = 12000        # one fetched page; they run 30KB+ raw
+FETCH_CHARS = 12000        # one fetched page; raw pages run 30KB+
+BUDGET = 192 * 1024        # total web bytes one panelist may pull
 
 _spent = 0
 
 
-def _denied(rel: str) -> bool:
-    """True if any excluded directory appears anywhere in the path, not just at the front.
-
-    Prefix matching alone is not enough: a git worktree under .worktrees/<branch>/ carries a
-    full copy of the tree, so 'docs/research/x.md' reappears as
-    '.worktrees/foo/docs/research/x.md' and sails straight past a startswith() check. That
-    happened — 96 excluded files were readable through a worktree copy before this fix.
-    """
-    return any(f"/{d}" in f"/{rel}" for d in DENY)
-
-
-def _root():
-    r = os.environ.get("PANEL_REPO_ROOT")
-    return pathlib.Path(r).resolve() if r else None
-
-
-def _resolve(path: str):
-    """Return (resolved_path, error). Blocks escapes and denied prefixes."""
-    root = _root()
-    if not root:
-        return None, "PANEL_REPO_ROOT is not set; repo access is disabled."
-    p = (root / path).resolve()
-    if not (p == root or root in p.parents):
-        return None, f"Refused: {path} is outside the repository."
-    rel = p.relative_to(root).as_posix()
-    if _denied(rel):
-        return None, f"Refused: {rel} is in an excluded area ({', '.join(DENY)})."
-    return p, None
-
-
-def list_files(pattern: str = "**/*") -> str:
-    """List repository files matching a glob pattern, e.g. 'apps/*/src/**/*.ts'.
-
-    Use this to discover what exists before reading. Paths are relative to the repo root.
-    """
-    root = _root()
-    if not root:
-        return "PANEL_REPO_ROOT is not set; repo access is disabled."
-    out = []
-    for p in sorted(root.glob(pattern)):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(root).as_posix()
-        if _denied(rel):
-            continue
-        out.append(f"{rel} ({p.stat().st_size // 1024}KB)")
-        if len(out) >= 200:
-            out.append("... (truncated at 200 entries; narrow the pattern)")
-            break
-    return "\n".join(out) or f"No files match {pattern}."
-
-
-def read_file(path: str) -> str:
-    """Read one repository file in full, given its path relative to the repo root.
-
-    Refuses rather than truncates when the byte budget is exhausted, so you always know
-    whether you are looking at a complete file.
-    """
-    global _spent
-    p, err = _resolve(path)
-    if err:
-        return err
-    if not p.is_file():
-        return f"Not found: {path}"
-    size = p.stat().st_size
-    if size > MAX_READ:
-        return (f"Refused: {path} is {size // 1024}KB, over the {MAX_READ // 1024}KB "
-                f"per-file limit. Use grep_repo to locate the relevant part instead.")
-    left = BUDGET - _spent
-    if size > left:
-        return (f"Refused: {path} is {size // 1024}KB but only {left // 1024}KB of the "
-                f"read budget remains. Nothing was read — pick a smaller file, or use "
-                f"grep_repo. Say so in your answer if this limits your conclusion.")
-    _spent += size
-    return p.read_text(encoding="utf-8", errors="replace")
-
-
-def grep_repo(pattern: str, path_glob: str = "**/*") -> str:
-    """Search repository file contents for a regular expression.
-
-    Returns matching lines as 'path:line: text'. Use this to locate code before reading a
-    whole file, and to check whether something exists at all.
-    """
-    root = _root()
-    if not root:
-        return "PANEL_REPO_ROOT is not set; repo access is disabled."
-    try:
-        rx = re.compile(pattern)
-    except re.error as e:
-        return f"Bad regular expression: {e}"
-    hits = []
-    for p in sorted(root.glob(path_glob)):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(root).as_posix()
-        if _denied(rel):
-            continue
-        try:
-            for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
-                if rx.search(line):
-                    hits.append(f"{rel}:{n}: {line.strip()[:200]}")
-                    if len(hits) >= GREP_HITS:
-                        hits.append(f"... (stopped at {GREP_HITS} matches; narrow the pattern)")
-                        return "\n".join(hits)
-        except (OSError, UnicodeDecodeError):
-            continue
-    return "\n".join(hits) or f"No matches for {pattern}."
-
-
 def _web(endpoint: str, payload: dict):
     """POST to ollama's web API. Returns (data, error_message)."""
+    global _spent
     keyfile = pathlib.Path(os.environ.get(
         "LLM_USER_PATH", pathlib.Path.home() / "Library/Application Support/io.datasette.llm"
     )) / "keys.json"
@@ -146,7 +45,10 @@ def _web(endpoint: str, payload: dict):
         key = json.loads(keyfile.read_text())["ollama"]
     except (OSError, KeyError, ValueError):
         return None, ("Web access unavailable: no 'ollama' key is stored. Answer from the "
-                      "package and the repo only, and mark anything you cannot check.")
+                      "package alone, and mark anything you could not check.")
+    if _spent >= BUDGET:
+        return None, (f"Web budget of {BUDGET // 1024}KB is spent — nothing was fetched. "
+                      f"Answer with what you have and say which points stayed unverified.")
     req = urllib.request.Request(
         f"https://ollama.com/api/{endpoint}",
         data=json.dumps(payload).encode(),
@@ -155,7 +57,7 @@ def _web(endpoint: str, payload: dict):
     try:
         with urllib.request.urlopen(req, timeout=45) as r:
             return json.loads(r.read()), None
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as e:
         return None, f"Web request failed ({e}). Treat the claim as unverified, not as true."
 
 
@@ -204,36 +106,17 @@ def web_fetch(url: str) -> str:
 if __name__ == "__main__":
     import tempfile
     with tempfile.TemporaryDirectory() as d:
-        root = pathlib.Path(d)
-        (root / "src").mkdir()
-        (root / "src/a.ts").write_text("export const x = 1;\n")
-        (root / "external").mkdir()
-        (root / "external/secret.md").write_text("unreleased\n")
-        (root / "big.txt").write_text("x" * (300 * 1024))
-        os.environ["PANEL_REPO_ROOT"] = str(root)
-
-        assert "export const x" in read_file("src/a.ts")
-        assert "excluded area" in read_file("external/secret.md"), "deny-list must hold"
-        (root / ".worktrees/br/docs/research").mkdir(parents=True)
-        (root / ".worktrees/br/docs/research/plan.md").write_text("unreleased plan\n")
-        assert "excluded area" in read_file(".worktrees/br/docs/research/plan.md"), \
-            "a worktree copy must not bypass the deny-list"
-        assert ".worktrees" not in list_files("**/*.md")
-        assert "unreleased plan" not in grep_repo("unreleased")
-        assert "outside the repository" in read_file("../../etc/passwd"), "no escapes"
-        assert "per-file limit" in read_file("big.txt"), "oversize must refuse"
-        assert "src/a.ts" in list_files("**/*.ts")
-        assert "external" not in list_files("**/*.md")
-        assert "src/a.ts:1:" in grep_repo("export const")
-        assert "No matches" in grep_repo("zzzz-not-present")
-
-        _spent = BUDGET - 10                       # budget nearly gone
-        out = read_file("src/a.ts")
-        assert "read budget remains" in out, "must refuse, never truncate"
-        assert "Nothing was read" in out
-
-        # web_search must degrade to a clear message, never raise, when no key is stored
-        os.environ["LLM_USER_PATH"] = str(root)
+        os.environ["LLM_USER_PATH"] = d                      # no keys.json in there
         assert "unavailable" in web_search("anything"), "missing key must not crash"
         assert "unavailable" in web_fetch("https://example.com"), "same for fetch"
+
+        pathlib.Path(d, "keys.json").write_text(json.dumps({"ollama": "fake"}))
+        _spent = BUDGET
+        out = web_search("anything")
+        assert "budget" in out and "nothing was fetched" in out, "must refuse when spent"
+
+        ns = {}
+        exec(pathlib.Path(__file__).read_text(), ns)         # exactly how llm loads this
+        exposed = sorted(n for n, v in ns.items() if callable(v) and not n.startswith("_"))
+        assert exposed == ["web_fetch", "web_search"], f"unexpected tools exposed: {exposed}"
         print("panel_tools self-check: ok")
