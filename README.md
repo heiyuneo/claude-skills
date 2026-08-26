@@ -13,22 +13,31 @@ a race I can't see, is this PR safe to ship.
 Install this and you say "panel this" — it packages your question *along with the relevant
 code* and fans it out to five **non-Claude** models
 (DeepSeek, Nemotron, GLM, Kimi, MiniMax), all in parallel, all at max reasoning effort.
-Claude then takes the five opinions back and reconciles them into four parts:
+Claude then takes the five opinions back and reconciles them into five parts:
 
 | Section | What goes in it |
 |---|---|
-| **Position matrix** | Every issue × every model — agrees / disagrees / didn't mention |
-| **Consensus** | Where three or more independently landed in the same place |
-| **Disagreements** | The actual arguments on each side, plus an adjudication |
+| **Position matrix** | Every issue × every model — agrees / disagrees / **considered and rejected** / didn't mention |
+| **Consensus** | Where three or more landed in the same place, labelled by how independent that agreement actually is |
+| **Disagreements** | The actual arguments on each side, plus an adjudication and the evidence for it |
 | **Lone insights** | Points only one model raised that survive scrutiny — often the most valuable part |
+| **Not covered, not verified** | Dimensions the question never asked about, and every load-bearing claim that went unchecked |
 
-Two rules the skill enforces on itself:
+Four rules the skill enforces on itself. They exist because the failure mode here is not a
+bad answer — it is **five answers that agree and are wrong together**, which reads as
+confirmation and stamps your own prior as verified:
 
 - **It never decides by vote count.** These five share a lot of training data and can be
   confidently wrong together; a lone dissent is often the correct one. Claims get weighed
   by argument quality and by whether they can be checked against code or a real test.
 - **It never tells the panel your preferred answer.** Stating a leaning anchors all five
   models at once and manufactures a consensus that isn't real.
+- **Consensus is graded by what it agreed *with*.** Agreeing with a conclusion your own
+  question package supplied is restatement, not corroboration. Agreement on a point where
+  they **contradict** the package is the strongest signal this design can produce — nothing
+  was pushing them there. The two never print under one heading.
+- **Confidence follows attendance.** 5/5 states conclusions plainly, 4/5 hedges, 3/5 has to
+  say out loud that the consensus may be an artifact of who happened to answer.
 
 ## When to use it
 
@@ -122,6 +131,14 @@ Two things worth knowing before you do this:
 Going direct is also a diagnostic: if a panelist is unreliable through a gateway and stable
 on the vendor's own endpoint, the gateway was the problem, not the model.
 
+The same one-line move adds a second search index rather than a second model — store a
+`brave` key and `web_search` starts querying Brave before Ollama's index. Optional; see
+[What the panel can check](#what-the-panel-can-check).
+
+```bash
+llm keys set brave    # https://api-dashboard.search.brave.com
+```
+
 ## Three things that will bite you
 
 1. **No key ships in this repo, and none ever should.** Everyone uses their own key on
@@ -132,7 +149,7 @@ on the vendor's own endpoint, the gateway was the problem, not the model.
    `ollama.com` and every call dies with `Connection error`.
 
 3. **Model names drift.** `setup/extra-openai-models.yaml` pins specific versions
-   (`glm-5.3`, `kimi-k2.7-code`, …). When you get a "model not found", check what's
+   (`glm-5.3`, `kimi-k3`, …). When you get a "model not found", check what's
    live and edit the file:
 
    ```bash
@@ -145,43 +162,90 @@ Five models run concurrently, so wall-clock is whatever the slowest one takes: r
 12 seconds for a short question, but **minutes** for a real one with code pasted in at
 max reasoning effort. The skill deliberately sends **no `max_tokens`** and always uses
 `reasoning_effort: max` — a panel exists to get the full argument, and truncating the
-reasoning defeats the point. With repo and web tools in the loop each panelist is capped at 540s, and the whole fan-out at 600s.
+reasoning defeats the point. With repo and web tools in the loop each panelist is capped at 720s and the whole fan-out at
+800s — the round trips are billed to the same clock, and three overruns at the old 540s cap
+still had 22–25 KB of real answer in them when they were killed.
 
 ## Troubleshooting
 
 | Symptom | Cause |
 |---|---|
-| All five return 401 | Key not picked up, or rotated |
+| All five return 401 | Key not stored via `llm keys set`, or rotated |
 | All five `Connection error` | Missing `NO_PROXY='ollama.com'` |
+| All five fail instantly | `panel_tools.py` missing from llm's config dir — `--functions` can't load |
+| One panelist vanishes after a long silence | It hit the `--cl` chain limit; the fuse kills the call outright |
 | `model not found` | Model name drifted — see #3 above |
 
 ```bash
 llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"   # are the aliases registered
+llm keys list                                                     # which keys are stored
 llm logs -n 5                                                     # every past exchange, in local SQLite
 ```
 
 ## What the panel can check
 
-Each panelist gets two tools, `web_search` and `web_fetch`, and nothing else. They exist
-because a panelist who cannot check anything invents instead: of six "measured" claims
-fact-checked across two runs, **four were fabricated**, in the same confident tone as the
-true ones — and all four were world facts (a library's version, whether an API exists, what
-a cited source says). Search finds the source; fetch reads the primary page rather than
-reasoning from snippets about it.
+Each panelist gets five tools, and no others.
 
-`web_search` reuses the `ollama` key you already stored, so there is nothing extra to sign
-up for. Without it, both tools return a plain "unavailable" instead of failing. Each
-panelist may pull 192KB of web content before the tools start refusing.
+**The outside world** — `web_search`, `web_fetch`. They exist because a panelist who cannot
+check anything invents instead: of six "measured" claims fact-checked across two runs,
+**four were fabricated**, in the same confident tone as the true ones — and all four were
+world facts (a library's version, whether an API exists, what a cited source says). Search
+finds the source; fetch reads the primary page rather than reasoning from snippets about it.
 
-**The panel cannot read your repository.** Tools that did (`list_files`, `read_file`,
-`grep_repo`) shipped once and were withdrawn after two measured runs: a deny-list defeated
-by a git worktree copy of excluded files, a search that spent 85 seconds and answered "No
-matches" for text that was present (`pathlib.glob` does not expand `{a,b}`), and zero usable
-answers out of ten attempts. `setup/panel_tools.py` states the conditions for reinstating
-them. A verification tool that lies is worse than none: it stamps a hallucination "checked".
+`web_search` will query **two independent indexes** if you let it: store a `brave` key and it
+tries Brave first, falling back to Ollama's index when Brave errors or comes back empty, with
+each result labelled by the index that answered. That is not a claim about bias — it is
+coverage. One index finding nothing is not evidence of absence, and when both come back empty
+the tool says exactly that, so silence is never read as "does not exist". Skip the key and
+search simply uses Ollama. Either way `web_fetch` stays on Ollama, since Brave returns
+snippets and no page body.
 
-So what reaches the panel is exactly what Claude puts in the question package — you can read
-every one of them afterwards under `~/.claude/panel-runs/`.
+**Your repository** — `list_files`, `read_file`, `grep_repo`, scoped to the repo Claude
+convened the panel from. Without them the question package is the only thing that ever
+reaches the panel, which makes one person's curation the entire world five models get to see
+— and that person is also the one adjudicating at the end.
+
+These three shipped once, were withdrawn, and are back **rebuilt rather than restored**,
+because the two failures that withdrew them have different lessons:
+
+- A deny-list meant to hide secrets was walked around by a `.worktrees/` copy of the tree.
+  The fix is not a better pattern list — it is **not having one**. Visibility is now defined
+  positively by `git ls-files`, so anything untracked simply does not exist for these tools:
+  `.env`, keystores, build output and stray worktree copies are out of reach by construction,
+  and there is no rule to maintain or get wrong.
+- A search built on `pathlib.glob` spent 85 seconds answering "No matches" for text that was
+  plainly present, because `pathlib` does not expand `{a,b}`. **That is the one that must
+  never come back**: a tool reporting a false absence is worse than no tool, since the model
+  then asserts the absence in an "I checked" register and your verification step becomes the
+  thing manufacturing the hallucination. The base is `git grep`, brace groups are expanded
+  before the pathspec is handed over, every empty result says the search *ran* and came back
+  empty, and `setup/panel_tools.py` carries a self-check covering exactly that regression.
+
+Each panelist may pull 192KB of web content and 512KB of repo content before the tools start
+refusing, and a refusal tells the model to answer with what it has and say which points
+stayed unverified.
+
+Everything that reaches the panel — the question package, all five raw answers, Claude's own
+answer written *before* the fan-out, and the final summary — is archived under
+`~/.claude/panel-runs/`, so you can always compare what the five actually said against what
+the summary claims they said. To audit one run:
+
+```bash
+CHECK=$(find ~/.claude/skills ~/.claude/plugins/cache -name check-run.sh -path '*panel*' 2>/dev/null | head -1)
+sh "$CHECK"
+```
+
+## Known temperament, per panelist
+
+Worth knowing before you misdiagnose one:
+
+| Alias | Behaviour |
+|---|---|
+| `kimi` | The reliable leg, and the deepest tool user of the five. A `grep_repo` claim it made about this repo checked out to the exact file and line, and it labelled its own answers `checked` and `second-hand, not chased` without being asked |
+| `deepseek-flash` | Occasionally runs away into the endpoint's own token ceiling; the per-panelist timeout catches it |
+| `nemotron` | Doesn't fail, overruns — both times it was killed the file still held 22–25 KB of real answer |
+| `minimax` | **Runs with tools off.** It died on full-size packages three times, but "breaks on tool calls" is not the diagnosis — single searches succeed at every effort tier in seconds. What reproduces is **non-convergence**: asked to check four facts it re-ran near-identical queries instead of using what it already had. Unencumbered it has twice produced the panel's longest answer, and it is the only panelist reasoning purely from the package — the natural control against the tool-using four |
+| `glm` | Its first request occasionally stalls at zero bytes, and retrying *immediately* then hits `429` — the abandoned request still holds the account's concurrency slot. The skill waits before re-running a straggler |
 
 ## Updating
 

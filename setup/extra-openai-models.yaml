@@ -2,11 +2,13 @@
 # mix providers freely — route one model to a vendor's own API and leave the rest on a
 # gateway, or give every model a different provider.
 #
-# Store each alias once, then never pass --key on the command line (an explicit --key
-# outranks these entries and would force every model onto one provider):
+# Store each alias once, then never pass --key on the command line. A --key overrides
+# api_key_name for every model at once while leaving each api_base alone, so one key gets
+# presented to three different providers and the two that did not issue it answer 401:
 #
 #   llm keys set ollama
 #   llm keys set deepseek
+#   llm keys set zhipu
 #
 # llm writes them to keys.json in this directory with mode 0600. Prefer that over an
 # environment variable: env vars leak into every child process you spawn, and every
@@ -51,7 +53,7 @@
   supports_tools: true
 
 - model_id: kimi
-  model_name: kimi-k2.7-code
+  model_name: kimi-k3
   api_base: "https://ollama.com/v1"
   api_key_name: ollama
   reasoning: true
