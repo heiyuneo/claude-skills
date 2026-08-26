@@ -34,7 +34,7 @@ if [ -f "$D/baseline.md" ] && [ -f "$D/summary.md" ]; then
 fi
 
 echo
-echo "出席（阈值：<200 ABSENT / <3000 UNUSABLE，两者都算缺席）"
+echo "出席（阈值：<200 ABSENT / <3000 UNUSABLE，两者都算缺席）"   # 与 SKILL.md §2 同步
 miss=0; n=0
 for f in "$D"out/*.md; do
   [ -e "$f" ] || continue

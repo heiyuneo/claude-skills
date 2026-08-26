@@ -273,34 +273,25 @@ check anything invents instead: of six "measured" claims fact-checked across two
 world facts (a library's version, whether an API exists, what a cited source says). Search
 finds the source; fetch reads the primary page rather than reasoning from snippets about it.
 
-`web_search` will query **two independent indexes** if you let it: store a `brave` key and it
-tries Brave first, falling back to Ollama's index when Brave errors or comes back empty, with
-each result labelled by the index that answered. That is not a claim about bias — it is
-coverage. One index finding nothing is not evidence of absence, and when both come back empty
-the tool says exactly that, so silence is never read as "does not exist". Skip the key and
-search simply uses Ollama. Either way `web_fetch` stays on Ollama, since Brave returns
-snippets and no page body.
+`web_search` walks whatever backends you configured, in order, and labels each result with
+the index that answered — see [Which search engine
+answers](#which-search-engine-answers). `web_fetch` stays on Ollama regardless, since Brave
+returns snippets and no page body.
 
 **Your repository** — `list_files`, `read_file`, `grep_repo`, scoped to the repo Claude
 convened the panel from. Without them the question package is the only thing that ever
 reaches the panel, which makes one person's curation the entire world five models get to see
 — and that person is also the one adjudicating at the end.
 
-These three shipped once, were withdrawn, and are back **rebuilt rather than restored**,
-because the two failures that withdrew them have different lessons:
-
-- A deny-list meant to hide secrets was walked around by a `.worktrees/` copy of the tree.
-  The fix is not a better pattern list — it is **not having one**. Visibility is now defined
-  positively by `git ls-files`, so anything untracked simply does not exist for these tools:
-  `.env`, keystores, build output and stray worktree copies are out of reach by construction,
-  and there is no rule to maintain or get wrong.
-- A search built on `pathlib.glob` spent 85 seconds answering "No matches" for text that was
-  plainly present, because `pathlib` does not expand `{a,b}`. **That is the one that must
-  never come back**: a tool reporting a false absence is worse than no tool, since the model
-  then asserts the absence in an "I checked" register and your verification step becomes the
-  thing manufacturing the hallucination. The base is `git grep`, brace groups are expanded
-  before the pathspec is handed over, every empty result says the search *ran* and came back
-  empty, and `setup/panel_tools.py` carries a self-check covering exactly that regression.
+These three shipped once, were withdrawn, and are back **rebuilt rather than restored**.
+A deny-list meant to hide secrets was once walked around by a `.worktrees/` copy of the tree,
+so there is no deny-list now — visibility is defined positively by `git ls-files`, and
+anything untracked simply does not exist for these tools. A search built on `pathlib.glob`
+once spent 85 seconds answering "No matches" for text that was plainly present; **a tool
+reporting a false absence is worse than no tool**, since the model then asserts that absence
+in an "I checked" register. The base is `git grep`, every empty result says the search *ran*
+and came back empty, and `setup/panel_tools.py` carries a self-check for that regression
+along with the full history.
 
 Each panelist may pull 192KB of web content and 512KB of repo content before the tools start
 refusing, and a refusal tells the model to answer with what it has and say which points

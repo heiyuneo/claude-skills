@@ -1,37 +1,35 @@
 """Lookup tools for panel members, passed to `llm --functions`.
 
-Two families, and they answer to different failure modes.
+The five public functions below are prompts as much as code: their docstrings are what the
+panelists read to decide when to call them and how to report a null result. Edit those with
+the same care as the skill itself.
 
-WEB (`web_search` / `web_fetch`). Panelists that cannot check anything invent instead: of
-six "measured" claims fact-checked across two runs, four were fabricated, in the same
-confident register as the true ones. Those fabrications were world facts — library
-versions, whether an API exists, what a cited source actually says.
+WEB (`web_search` / `web_fetch`). Backends and their order come from `panel-search.json`;
+a backend with no stored key is skipped silently. Panelists that cannot check anything
+invent instead — of six "measured" claims fact-checked across two runs, four were
+fabricated, all of them world facts.
 
-REPO (`list_files` / `read_file` / `grep_repo`). These shipped once, were withdrawn, and
-are back — rebuilt, not restored. The first version failed twice, and the two failures
-have different lessons:
+REPO (`list_files` / `read_file` / `grep_repo`), rooted at PANEL_REPO, which the skill
+exports before the fan-out; the panel's cwd is the archive directory, so without it there
+is no repo in scope and these tools say so rather than guess. They shipped once, were
+withdrawn, and are back rebuilt — the two failures that withdrew them are why this file
+looks the way it does:
 
-  * It used a prefix deny-list to hide secrets, and a `.worktrees/` copy of the tree walked
-    straight around it: 96 excluded files were read. The lesson is not "don't read the
-    repo" — for an open-source project whose code is being pasted into these same APIs
-    anyway, that objection is weak. The lesson is that **a deny-list is the wrong shape.**
-    This version has no deny-list. Visibility is defined positively by `git ls-files`, so
-    only tracked files exist at all; `.env`, keystores, build output and stray worktree
-    copies are invisible because they are untracked, not because a pattern caught them.
-    A path that is not in `git ls-files` cannot be read, no matter how it is spelled.
-
-  * It searched with `pathlib.glob`, which does not expand `{a,b}`, so an 85-second search
-    answered "No matches" for text that was plainly present. That one is the real hazard:
-    **a verification tool that lies is worse than none — it stamps a hallucination
-    "checked."** `git grep` ran the same query correctly in 0.14s and is what runs here.
-
-The repo root comes from PANEL_REPO, exported by the skill before the fan-out. The panel
-runs with its cwd inside the archive directory, so without it there is no repo in scope —
-in which case these tools say so plainly rather than guessing at a path.
+  * A prefix deny-list meant to hide secrets was walked around by a `.worktrees/` copy of
+    the tree: 96 excluded files were read. The lesson is not "don't read the repo" — for a
+    codebase already being pasted into these same APIs, that objection is weak. **A
+    deny-list is the wrong shape.** There is none here: visibility is defined positively by
+    `git ls-files`, so a path that is not tracked cannot be read however it is spelled, and
+    there is no pattern to maintain or get wrong.
+  * `pathlib.glob` does not expand `{a,b}`, so an 85-second search answered "No matches"
+    for text that was plainly present. **A verification tool that lies is worse than none —
+    it stamps a hallucination "checked."** `git grep` ran the same query correctly in
+    0.14s, braces are expanded before the pathspec is built, and the self-check at the
+    bottom covers exactly this regression.
 
 Keep every import in `import x` form. `llm --functions` execs this file into a bare
 namespace and registers every non-underscore callable as a tool, so `from pathlib import
-Path` silently handed the panel a `Path` constructor described as "can make system calls".
+Path` once handed the panel a `Path` constructor described as "can make system calls".
 """
 
 import json
