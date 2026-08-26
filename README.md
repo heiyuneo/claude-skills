@@ -62,9 +62,9 @@ borrow someone else's.
 # install the llm CLI
 uv tool install llm                 # no uv? use: brew install llm
 
-# fetch the setup files: model aliases, the tools, and the doctor
+# fetch the setup files: model aliases, search backends, the tools, and the doctor
 CFG="$(dirname "$(llm logs path)")"; mkdir -p "$CFG"
-for f in extra-openai-models.yaml panel_tools.py panel-doctor.py; do
+for f in extra-openai-models.yaml panel_tools.py panel-doctor.py panel-search.json; do
   curl -fsSL "https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/$f" -o "$CFG/$f"
 done
 
@@ -160,6 +160,38 @@ just runs at whatever the server picks, and the answer looks completely normal. 
 refuses to start rather than let that happen, and `--set-effort max` clears it in one
 command. This is also why the skill no longer hard-codes `-o reasoning_effort max`: an
 explicit flag outranks every stored default, which would make all of the above unusable.
+
+### Which search engine answers
+
+`web_search` walks a list of backends in order and returns the first one that finds
+something. The list lives in `panel-search.json` beside the model table, and it is a table
+you edit for exactly the same reason the model table is:
+
+```json
+{
+  "name": "brave",                       // what shows up as "(index: brave)" in the answer
+  "key": "brave",                        // which stored llm key to use
+  "url": "https://api.search.brave.com/res/v1/web/search?extra_snippets=true&q={q}",
+  "header": { "X-Subscription-Token": "{key}" },
+  "results": "web.results",              // dotted path to the array of results
+  "title": "title", "link": "url",       // which field is the title, which is the URL
+  "content": ["description", "extra_snippets"]   // fields to join into the excerpt
+}
+```
+
+POST-style APIs work too — add `"method": "POST"` and a `"body"` object; `{q}` and `{key}`
+are substituted in both. Any provider that returns a JSON array of results with a title, a
+URL and some text can be mapped in about eight lines.
+
+**A backend with no stored key is skipped silently**, so you can leave entries in the file
+as templates and activate one by storing its key. The shipped file has Brave first and
+Ollama second; `panel-doctor.py` prints the active order so you can see which one actually
+answered.
+
+Why more than one: **one index finding nothing is not evidence of absence.** When every
+configured backend comes back empty the tool says exactly that, so a panelist can never turn
+silence into "it does not exist". That is the entire reason a second index is worth a key —
+not that any index is more trustworthy than another.
 
 ### Two things worth knowing
 
@@ -285,7 +317,7 @@ Worth knowing before you misdiagnose one:
 /plugin update panel
 ```
 
-⚠️ **The files in `setup/` do not ride along with the plugin** — `llm` owns that config
+⚠️ **The four files in `setup/` do not ride along with the plugin** — `llm` owns that config
 directory, not Claude Code. After an update that touches them, re-run the `curl` loop from
 step 2, then `panel-doctor.py` to confirm. A missing `panel_tools.py` fails **all five**
 panelists at once, since `--functions` cannot load.

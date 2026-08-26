@@ -56,43 +56,88 @@ _spent = 0
 _repo_spent = 0
 
 
+def _cfg() -> pathlib.Path:
+    """llm's config directory — where keys, model aliases and these tools all live."""
+    return pathlib.Path(os.environ.get(
+        "LLM_USER_PATH", pathlib.Path.home() / "Library/Application Support/io.datasette.llm"))
+
+
 def _key(name: str):
     """Read one stored llm key. Returns None when it isn't there."""
-    keyfile = pathlib.Path(os.environ.get(
-        "LLM_USER_PATH", pathlib.Path.home() / "Library/Application Support/io.datasette.llm"
-    )) / "keys.json"
     try:
-        return json.loads(keyfile.read_text())[name]
+        return json.loads((_cfg() / "keys.json").read_text())[name]
     except (OSError, KeyError, ValueError):
         return None
 
 
-def _brave(query: str):
-    """Search Brave's index. Returns (results, error_message); results may be empty.
+DEFAULT_BACKENDS = [
+    {"name": "brave", "key": "brave",
+     "url": "https://api.search.brave.com/res/v1/web/search?extra_snippets=true&q={q}",
+     "header": {"X-Subscription-Token": "{key}", "Accept": "application/json"},
+     "results": "web.results", "title": "title", "link": "url",
+     "content": ["description", "extra_snippets"]},
+    {"name": "ollama", "key": "ollama",
+     "url": "https://ollama.com/api/web_search",
+     "method": "POST", "body": {"query": "{q}"},
+     "header": {"Authorization": "Bearer {key}", "Content-Type": "application/json"},
+     "results": "results", "title": "title", "link": "url", "content": ["content"]},
+]
 
-    Brave returns snippets only — title, url, description and up to five extra_snippets —
-    with no page body, which is why web_fetch stays on the other provider. It is here as a
-    second independent index: one index coming back empty is not evidence of absence, and
-    having somewhere else to look is the cheapest guard against a false negative there is.
+
+def _backends():
+    """Search backends, in the order they are tried. Editable, like the model table.
+
+    Lives in `panel-search.json` beside the model aliases. Same idea as
+    extra-openai-models.yaml: which provider answers a search is a configuration choice,
+    not something baked into this file. Missing or malformed file falls back to the two
+    built-in entries, so an install that never touches it behaves exactly as before.
     """
-    key = _key("brave")
+    f = _cfg() / "panel-search.json"
+    try:
+        entries = json.loads(f.read_text())
+        return entries if isinstance(entries, list) and entries else DEFAULT_BACKENDS
+    except (OSError, ValueError):
+        return DEFAULT_BACKENDS
+
+
+def _dig(data, path: str):
+    """Walk a dotted path: 'web.results' -> data['web']['results']. [] when absent."""
+    for part in path.split("."):
+        if not isinstance(data, dict):
+            return []
+        data = data.get(part)
+    return data if isinstance(data, list) else []
+
+
+def _search_one(b: dict, query: str):
+    """Run one backend. Returns (results, error); results is [] when it found nothing,
+    and None when the backend is not configured at all."""
+    key = _key(b.get("key", ""))
     if not key:
         return None, None                      # not configured; caller falls through
-    url = ("https://api.search.brave.com/res/v1/web/search?extra_snippets=true&q="
-           + urllib.parse.quote(query))
-    req = urllib.request.Request(url, headers={
-        "X-Subscription-Token": key, "Accept": "application/json"})
+    fill = lambda t: t.replace("{q}", urllib.parse.quote(query)).replace("{key}", key)
+    headers = {k: v.replace("{key}", key) for k, v in (b.get("header") or {}).items()}
+    body = None
+    if b.get("method", "GET").upper() == "POST":
+        raw = json.dumps(b.get("body") or {}).replace("{q}", query.replace('"', '\\"'))
+        body = raw.encode()
+    req = urllib.request.Request(fill(b["url"]), data=body, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urllib.request.urlopen(req, timeout=45) as r:
             data = json.loads(r.read())
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as e:
-        return None, f"Brave search failed ({e})"
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError, KeyError) as e:
+        return None, f"{b.get('name','backend')} search failed ({e})"
     out = []
-    for r in (data.get("web") or {}).get("results", [])[:WEB_RESULTS]:
-        body = " ".join([r.get("description") or ""] + (r.get("extra_snippets") or []))
-        out.append({"title": r.get("title") or "(no title)",
-                    "url": r.get("url") or "",
-                    "content": body[:WEB_CHARS]})
+    for r in _dig(data, b.get("results", "results"))[:WEB_RESULTS]:
+        if not isinstance(r, dict):
+            continue
+        parts = []
+        for f in b.get("content", ["content"]):
+            v = r.get(f)
+            parts.extend(v if isinstance(v, list) else [v] if v else [])
+        out.append({"title": r.get(b.get("title", "title")) or "(no title)",
+                    "url": r.get(b.get("link", "url")) or "",
+                    "content": " ".join(str(x) for x in parts)[:WEB_CHARS]})
     return out, None
 
 
@@ -167,35 +212,30 @@ def web_search(query: str) -> str:
     spends your budget without adding anything. When you have the answer, move on.
     """
     global _spent
-    if _spent >= BUDGET:                       # one gate for every backend — a second index
+    if _spent >= BUDGET:                       # one gate for every backend
         return (f"Web budget of {BUDGET // 1024}KB is spent — nothing was fetched. "
                 f"Answer with what you have and say which points stayed unverified.")
-    tried = []
 
-    results, err = _brave(query)               # independent index first, when configured
-    if err:
-        tried.append(err)
-    elif results:
+    tried, configured = [], 0
+    for b in _backends():
+        results, err = _search_one(b, query)
+        if results is None and err is None:
+            continue                           # backend not configured — silent skip
+        configured += 1
+        if err:
+            tried.append(err)
+            continue
+        if not results:
+            tried.append(f"{b.get('name','backend')} returned no results")
+            continue
         text = "\n\n".join(f"### {r['title']}\n{r['url']}\n\n{r['content']}" for r in results)
         _spent += len(text.encode())
-        return f"(index: brave)\n\n{text}"
-    elif results is not None:
-        tried.append("Brave returned no results")
+        note = f" after: {'; '.join(tried)}" if tried else ""
+        return f"(index: {b.get('name','?')}{note})\n\n{text}"
 
-    data, err = _web("web_search", {"query": query})
-    if err:
-        tried.append(err)
-    else:
-        results = (data or {}).get("results", [])
-        if results:
-            text = "\n\n".join(
-                f"### {r.get('title','(no title)')}\n{r.get('url','')}\n\n"
-                f"{(r.get('content') or '')[:WEB_CHARS]}" for r in results[:WEB_RESULTS])
-            _spent += len(text.encode())
-            note = f" after: {'; '.join(tried)}" if tried else ""
-            return f"(index: ollama{note})\n\n{text}"
-        tried.append("ollama returned no results")
-
+    if not configured:
+        return ("Web search is unavailable: none of the configured backends has a stored key. "
+                "Answer from the package alone, and mark anything you could not check.")
     return (f"Nothing found for {query!r} — {'; '.join(tried)}. Every index available here "
             f"was queried and came back empty. Report that as a search that found nothing, "
             f"not as proof the thing does not exist.")

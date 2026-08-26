@@ -1,0 +1,24 @@
+[
+  {
+    "name": "brave",
+    "key": "brave",
+    "url": "https://api.search.brave.com/res/v1/web/search?extra_snippets=true&q={q}",
+    "header": { "X-Subscription-Token": "{key}", "Accept": "application/json" },
+    "results": "web.results",
+    "title": "title",
+    "link": "url",
+    "content": ["description", "extra_snippets"]
+  },
+  {
+    "name": "ollama",
+    "key": "ollama",
+    "url": "https://ollama.com/api/web_search",
+    "method": "POST",
+    "body": { "query": "{q}" },
+    "header": { "Authorization": "Bearer {key}", "Content-Type": "application/json" },
+    "results": "results",
+    "title": "title",
+    "link": "url",
+    "content": ["content"]
+  }
+]

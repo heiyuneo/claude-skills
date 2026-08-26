@@ -54,9 +54,9 @@
 # 装 llm CLI
 uv tool install llm                 # 没有 uv 就用： brew install llm
 
-# 下载两个配置文件：模型别名 + 只读仓库工具
+# 下载四个配置文件：模型别名、搜索后端、工具、体检脚本
 CFG="$(dirname "$(llm logs path)")"; mkdir -p "$CFG"
-for f in extra-openai-models.yaml panel_tools.py; do
+for f in extra-openai-models.yaml panel_tools.py panel-doctor.py panel-search.json; do
   curl -fsSL "https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/$f" -o "$CFG/$f"
 done
 
@@ -147,6 +147,34 @@ python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --set-effort max   # 五
 上，答案看起来**完全正常**。所以 skill 宁可**拒绝启动**也不让这种情况发生，`--set-effort max`
 一条命令就能清掉。这也正是 skill **不再硬编码** `-o reasoning_effort max` 的原因：命令行上
 的显式参数会盖掉所有存好的默认值，上面这一整节就全废了。
+
+### 搜索用哪家
+
+`web_search` 会**按顺序**走一张后端表，谁先查到就用谁的。这张表放在 `panel-search.json`，
+跟模型表并排——**理由完全一样：搜索用哪家是配置，不该写死在代码里**。
+
+```json
+{
+  "name": "brave",                       // 答案开头会标 "(index: brave)"
+  "key": "brave",                        // 用哪把存好的 llm key
+  "url": "https://api.search.brave.com/res/v1/web/search?extra_snippets=true&q={q}",
+  "header": { "X-Subscription-Token": "{key}" },
+  "results": "web.results",              // 结果数组在 JSON 里的点路径
+  "title": "title", "link": "url",       // 哪个字段是标题、哪个是链接
+  "content": ["description", "extra_snippets"]   // 拼成摘要的字段
+}
+```
+
+POST 型的 API 也支持——加 `"method": "POST"` 和一个 `"body"`，`{q}` 和 `{key}` 在两边都会
+被替换。**任何返回"标题+链接+一段文字"的 JSON 数组的搜索服务，八行就能接进来。**
+
+**没存 key 的后端会被静默跳过**，所以你可以把条目当模板留在文件里，存了 key 才激活。
+默认发的是 Brave 在前、Ollama 在后；`panel-doctor.py` 会打印当前生效的顺序，答案里也会标
+最后是哪家答的。
+
+为什么要不止一个：**一个索引查不到，不等于不存在。** 所有配好的后端都查空时，工具会**明说
+"都搜过了，都是空的"**，这样答题方永远没法把沉默说成"这东西不存在"。**这才是第二个索引值一把
+key 的理由**——不是因为哪家索引更可信。
 
 ### 两件值得先知道的
 
@@ -246,6 +274,6 @@ sh "$CHECK"
 
 推到这个仓之后，同事各自 `/plugin marketplace update heiyu-claude-skills` 就能收到。
 
-⚠️ **`setup/` 下的文件不会跟着 plugin 走**——那个配置目录归 `llm` 管，不归 Claude Code。
+⚠️ **`setup/` 下那四个文件不会跟着 plugin 走**——那个配置目录归 `llm` 管，不归 Claude Code。
 涉及它们的更新之后，要重跑第 2 步里那段 curl，再跑一次 `panel-doctor.py` 确认。**缺了 `panel_tools.py` 会让五家一起失败**，
 因为 `--functions` 加载不到文件。

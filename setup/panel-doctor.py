@@ -58,6 +58,17 @@ def _models(path: pathlib.Path):
     return entries
 
 
+def _backends(cfg: pathlib.Path):
+    """The search backends, in the order web_search will try them."""
+    import json as _json
+    f = cfg / "panel-search.json"
+    try:
+        e = _json.loads(f.read_text())
+        return e if isinstance(e, list) and e else []
+    except (OSError, ValueError):
+        return [{"name": "brave", "key": "brave"}, {"name": "ollama", "key": "ollama"}]
+
+
 def _stored_keys():
     out = subprocess.run(["llm", "keys", "list"], capture_output=True, text=True)
     return {l.strip() for l in out.stdout.splitlines() if l.strip()}
@@ -134,10 +145,16 @@ def main():
             print(" " * (w[0] + 2) + "└─ " + r[7])
 
     print()
-    if "brave" in keys:
-        print("web search : brave + ollama (two indexes)")
-    else:
-        print("web search : ollama only — `llm keys set brave` adds a second index")
+    backends, unconfigured = _backends(cfg), []
+    active = []
+    for b in backends:
+        (active if b.get("key") in keys else unconfigured).append(
+            f"{b.get('name','?')}({b.get('key','?')})")
+    print("web search : " + (" → ".join(active) if active
+                             else "NONE CONFIGURED — no backend has a stored key"))
+    if unconfigured:
+        print("             " + ", ".join(unconfigured)
+              + "  ← listed but no key stored, silently skipped")
     print("repo tools : " + ("panel_tools.py present" if tools_ok
                              else "panel_tools.py MISSING — all five panelists will fail"))
 
@@ -147,6 +164,9 @@ def main():
                     + {"ollama": "        # https://ollama.com/settings/keys",
                        "deepseek": "      # https://platform.deepseek.com",
                        "zhipu": "         # https://open.bigmodel.cn"}.get(k, ""))
+    if not any(b.get("key") in keys for b in backends):
+        todo.append("llm keys set ollama        # no search backend has a key — panelists "
+                    "would have to answer from memory")
     if missing_effort:
         todo.append("python3 panel-doctor.py --set-effort max"
                     f"   # unset on: {', '.join(missing_effort)}")
