@@ -101,6 +101,11 @@ export NO_PROXY='ollama.com'   # bypass a system proxy that can't reach ollama.c
 llm keys list 2>/dev/null | grep -q . || { echo "No API keys stored — run: llm keys set ollama"; exit 1; }
 export TOOLS="$(dirname "$(llm logs path)")/panel_tools.py"
 export PANEL_REPO="$(git rev-parse --show-toplevel 2>/dev/null)"   # repo the panel may read
+for m in deepseek-flash nemotron glm kimi minimax; do          # effort lives per model, not here
+  llm models options show "$m" 2>/dev/null | grep -q reasoning_effort || {
+    echo "$m has no reasoning_effort default — the panel would silently run at the server's."
+    echo "Fix once:  python3 \"$(dirname "$(llm logs path)")/panel-doctor.py\" --set-effort max"; exit 1; }
+done
 D=~/.claude/panel-runs/$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D/out" && echo "$D"
 [ -n "$PANEL_REPO" ] && echo "repo in scope: $PANEL_REPO" || echo "no repo in scope — package is the panel's only source"
@@ -127,10 +132,10 @@ Once `$D/q.md` and `$D/baseline.md` are both written:
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
   | xargs -P5 -n1 sh -c 'm=$1
       if [ "$m" = minimax ]; then                 # tools off for minimax only — see below
-        timeout 720 llm -m "$m" -o reasoning_effort max --cl 60 \
+        timeout 720 llm -m "$m" --cl 60 \
           < q.md > "out/$m.md" 2> "out/$m.err"
       else
-        timeout 720 llm -m "$m" -o reasoning_effort max --functions "$TOOLS" --cl 60 \
+        timeout 720 llm -m "$m" --functions "$TOOLS" --cl 60 \
           < q.md > "out/$m.md" 2> "out/$m.err"
       fi || echo "PANELIST FAILED exit=$?" >> "out/$m.err"' _
 for f in out/*.md; do
@@ -286,6 +291,20 @@ differently — do not diagnose this as "the gateway is down"):
   55 calls, hitting the endpoint's own 65536 ceiling), but `timeout` is the fix for those; a
   token cap would truncate honest answers, which have run to 17466 tokens.
 
+**Reasoning effort is no longer set here, and that is deliberate.** It used to be
+`-o reasoning_effort max` hard-coded into the fan-out, which meant a user could not raise
+one panelist to a tier its own vendor offers (DeepSeek's API takes `xhigh`, the gateway
+does not) or lower a slow one, because an explicit `-o` outranks every stored default. It
+now lives per model in llm's own config — `llm models options set <alias> reasoning_effort
+<tier>` — alongside the per-model endpoint and key, so all three parts of a panelist are
+configured in the same place and none of them are baked into this file.
+
+The cost of that freedom is a silent failure mode: an unset default does not error, it just
+runs at whatever the server picks, and the run looks completely normal. That is why the
+preflight above is a hard gate rather than a warning — `panel-doctor.py` reports the effort
+of all five beside their endpoints and keys, and `--set-effort max` restores the old
+behaviour in one command.
+
 **Re-run only when the panel lost its majority**, counting ABSENT **and UNUSABLE** as
 missing. 1 missing → reconcile the rest and move on; re-running for one more opinion just
 doubles the wait. 2+ missing → re-run only those, once (measured: 3 minutes, and it recovered
@@ -430,7 +449,7 @@ cd "$D"
 } > r2.md
 mkdir -p out2 && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
   | xargs -P5 -n1 sh -c 'm=$1
-      timeout 360 llm -m "$m" -o reasoning_effort max < r2.md > "out2/$m.md" 2> "out2/$m.err" \
+      timeout 360 llm -m "$m" < r2.md > "out2/$m.md" 2> "out2/$m.err" \
         || echo "PANELIST FAILED exit=$?" >> "out2/$m.err"' _
 grep -c "^### Answer" r2.md; wc -c out2/*.md
 ```

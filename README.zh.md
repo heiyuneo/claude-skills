@@ -62,11 +62,18 @@ done
 
 # 存 key（会提示你粘贴，不会进 shell 历史）
 llm keys set ollama
+
+# 给每家设好思考档，然后看看还缺什么
+python3 "$CFG/panel-doctor.py" --set-effort max
 ```
+
+体检会给每家打印一行——端点、要哪把 key、这把 key 存了没、思考档是多少——缺什么就
+直接给出该跑的命令。**发布的默认阵容横跨三家供应商**，所以它会告诉你还差两把 key；
+下一节讲怎么办：要么去申请，要么把那两家指到你已经有 key 的地方。
 
 `llm` 会把它写进配置目录下的 `keys.json`，权限 0600。**别改用环境变量**——环境变量会被
 你启动的每个子进程继承，而且所有 OpenAI 兼容模型都回退到**同一个** `OPENAI_API_KEY`，
-根本没法给不同模型配不同的 key（见[混用供应商](#混用供应商)）。
+根本没法给不同模型配不同的 key（见[配成你自己的阵容](#配成你自己的阵容)）。
 
 跑完当场验一下，出一句话就说明 key、端点、模型三样都对了：
 
@@ -83,46 +90,71 @@ NO_PROXY='ollama.com' llm -m glm "用一句话说说你是谁"
 
 重开 Claude Code，说一句「会诊一下 xxx」试试。
 
-## 混用供应商
+## 配成你自己的阵容
 
-五家没有绑死在一个供应商上。`extra-openai-models.yaml` 里**每个条目各自带** `api_base`
-和 `api_key_name`，所以任何一家都能单独指到任何 OpenAI 兼容端点——厂商官方 API、网关、
-本地服务、私有部署都行，其余几家原地不动。
+一家 panelist 是**三个互相独立的选择**：走哪个供应商、用哪把 key、想多深。**这三样都不在
+skill 里写死。** skill 从头到尾只调五个别名：`deepseek-flash` / `nemotron` / `glm` /
+`kimi` / `minimax`。每个别名指向哪儿，完全归你。
 
-先把新 key 存一次：
+随时跑体检看现状和缺什么：
 
 ```bash
-llm keys set deepseek
+python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --ping
 ```
 
-再把那一个模型指过去：
+```
+alias           model              endpoint          key alias  stored  effort  reachable
+deepseek-flash  deepseek-v4-flash  api.deepseek.com  deepseek   yes     max     ok
+glm             glm-5.3            open.bigmodel.cn  zhipu      NO      unset   skipped
+...
+```
+
+### 供应商和 key
+
+`extra-openai-models.yaml` 里每一条都自带 `api_base` 和 `api_key_name`，所以任何一家都能
+指到任何 OpenAI 兼容的端点——厂商官方 API、网关、本地服务、私有部署都行，其余四家不受
+影响。改三行就搬一家：
 
 ```yaml
-- model_id: deepseek-flash
-  model_name: deepseek-v4-flash              # 厂商自己的模型名
-  api_base: "https://api.deepseek.com/v1"    # 不再走网关
-  api_key_name: deepseek                     # 不再用 ollama 那个 key
-  reasoning: true
+- model_id: deepseek-flash                   # skill 认的就是这个，别改
+  model_name: deepseek-v4-flash              # 那个供应商自己的型号名
+  api_base: "https://api.deepseek.com/v1"    # 换掉网关
+  api_key_name: deepseek                     # 换掉 ollama
+  reasoning: true                            # 必须有，否则思考档根本设不了
 ```
 
-`model_id` 是 skill 用的别名，所以改它指向哪里，**skill 一个字都不用动**。
+然后把那把 key 存一次：`llm keys set deepseek`。
 
-动手前有两件事要知道：
+**不想为某一家专门去注册账号？** 把它指到你已经在用的供应商就行。**五家全挂在 Ollama
+上、只用一把 key，也是一个完全成立的会诊**——你损失的是一两个模型版本，不是这套设计。
+这五个别名是**五个位子，不是五家厂商**。
 
-- **绝不要在扇出命令里加 `--key`。** 显式 key 的优先级高于文件里所有 `api_key_name`，
-  会**悄悄**把五家全都赶到同一个供应商上。仓里的命令是刻意不带它的。
-- **思考档位各家不一样。** ollama cloud 认 `none/low/medium/high/max`；
-  DeepSeek 官方认 `none/minimal/low/medium/high/xhigh/max`。两家都认 `max`（skill 发的
-  就是这个），但如果某个供应商根本不认这个字段，整个调用会失败——接进来之前先手测一个。
+### 每家想多深
 
-走官方顺带是一次**诊断**：某家经过网关时不稳、直连厂商端点却稳定，那问题在网关，不在模型。
-
-同样一行的动作还能加一个**搜索索引**（而不是加一个模型）——存一把 `brave` key，
-`web_search` 就会先查 Brave 再回落 Ollama。可选，细节见[五家能查到什么](#五家能查到什么)。
+思考档存在 `llm` 自己的配置里，**不由 skill 传**：
 
 ```bash
-llm keys set brave    # https://api-dashboard.search.brave.com
+llm models options set glm reasoning_effort max
+llm models options show glm
+python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --set-effort max   # 五家一次设完
 ```
+
+**档位数各家不一样。** Ollama 网关是 `none/low/medium/high/max` 五档；DeepSeek 官方端还多
+`minimal` 和 `xhigh`。两边都认 `max`。**传了对方不认的字段会让整个调用失败**，所以搬完一家
+之后先手动试一次。
+
+⚠️ **这里唯一会闷声出事的，就是思考档没设。** 它不报错——模型只是跑在服务端自己挑的档位
+上，答案看起来**完全正常**。所以 skill 宁可**拒绝启动**也不让这种情况发生，`--set-effort max`
+一条命令就能清掉。这也正是 skill **不再硬编码** `-o reasoning_effort max` 的原因：命令行上
+的显式参数会盖掉所有存好的默认值，上面这一整节就全废了。
+
+### 两件值得先知道的
+
+- **绝不要在扇出命令上加 `--key`。** 它会一次性盖掉所有条目的 `api_key_name`，却**不动各自
+  的 `api_base`**——于是同一把钥匙被递到好几家门口，没签发过它的那几家直接回 `401`。发布的
+  命令刻意不用它。
+- **直连官方端本身就是一种诊断。** 某一家在网关上不稳、换到厂商自己的端点就稳，那问题在
+  网关，不在模型。
 
 ## 三个坑
 
@@ -214,6 +246,6 @@ sh "$CHECK"
 
 推到这个仓之后，同事各自 `/plugin marketplace update heiyu-claude-skills` 就能收到。
 
-⚠️ **`setup/` 下那两个文件不会跟着 plugin 走**——那个配置目录归 `llm` 管，不归 Claude Code。
-涉及它们的更新之后，要重跑第 2 步里那段 curl。**缺了 `panel_tools.py` 会让五家一起失败**，
+⚠️ **`setup/` 下的文件不会跟着 plugin 走**——那个配置目录归 `llm` 管，不归 Claude Code。
+涉及它们的更新之后，要重跑第 2 步里那段 curl，再跑一次 `panel-doctor.py` 确认。**缺了 `panel_tools.py` 会让五家一起失败**，
 因为 `--functions` 加载不到文件。

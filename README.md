@@ -62,20 +62,28 @@ borrow someone else's.
 # install the llm CLI
 uv tool install llm                 # no uv? use: brew install llm
 
-# fetch the two setup files: model aliases, and the read-only repo tools
+# fetch the setup files: model aliases, the tools, and the doctor
 CFG="$(dirname "$(llm logs path)")"; mkdir -p "$CFG"
-for f in extra-openai-models.yaml panel_tools.py; do
+for f in extra-openai-models.yaml panel_tools.py panel-doctor.py; do
   curl -fsSL "https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/$f" -o "$CFG/$f"
 done
 
 # store the key (prompts for it — nothing lands in your shell history)
 llm keys set ollama
+
+# set each panelist's reasoning effort, then see what's still missing
+python3 "$CFG/panel-doctor.py" --set-effort max
 ```
+
+The doctor prints one row per panelist — endpoint, key alias, whether that key is stored,
+its effort — and the exact commands for anything missing. **The shipped lineup spans three
+providers**, so it will tell you about two keys you have not stored yet; the next section is
+how to either store them or point those two panelists somewhere you already have a key.
 
 `llm` writes it to `keys.json` beside that config file, mode 0600. **Don't put it in an
 environment variable instead** — env vars get inherited by every process you launch, and
 because every OpenAI-compatible model falls back to the *same* `OPENAI_API_KEY`, they
-can't express per-model keys at all (see [Mixing providers](#mixing-providers)).
+can't express per-model keys at all (see [Configure your own lineup](#configure-your-own-lineup)).
 
 Check it right away. One sentence back means key, endpoint and model are all correct:
 
@@ -92,52 +100,74 @@ NO_PROXY='ollama.com' llm -m glm "Introduce yourself in one sentence."
 
 Restart Claude Code and say "panel this: ...".
 
-## Mixing providers
+## Configure your own lineup
 
-Nothing ties the panel to one vendor. Every entry in `extra-openai-models.yaml` carries its
-own `api_base` and its own `api_key_name`, so any panelist can be routed to any
-OpenAI-compatible endpoint — a vendor's own API, a gateway, a local server, a private
-deployment — while the rest stay where they are.
+A panelist is three independent choices — **which provider**, **which key**, **how hard it
+thinks** — and none of them are baked into the skill. The skill only ever calls five
+aliases: `deepseek-flash`, `nemotron`, `glm`, `kimi`, `minimax`. Where each alias points is
+entirely yours.
 
-Store the extra key once:
+Run the doctor any time to see the current wiring and what it needs:
 
 ```bash
-llm keys set deepseek
+python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --ping
 ```
 
-Then point that one model at it:
+```
+alias           model              endpoint          key alias  stored  effort  reachable
+deepseek-flash  deepseek-v4-flash  api.deepseek.com  deepseek   yes     max     ok
+glm             glm-5.3            open.bigmodel.cn  zhipu      NO      unset   skipped
+...
+```
+
+### Provider and key
+
+Every entry in `extra-openai-models.yaml` carries its own `api_base` and `api_key_name`, so
+a panelist can be routed to any OpenAI-compatible endpoint — a vendor's own API, a gateway,
+a local server, a private deployment — while the rest stay where they are. Three lines move
+one model:
 
 ```yaml
-- model_id: deepseek-flash
-  model_name: deepseek-v4-flash              # vendor's own name for it
+- model_id: deepseek-flash                   # what the skill calls — never change this
+  model_name: deepseek-v4-flash              # that provider's own name for it
   api_base: "https://api.deepseek.com/v1"    # instead of the gateway
   api_key_name: deepseek                     # instead of: ollama
-  reasoning: true
+  reasoning: true                            # required, or effort can't be set at all
 ```
 
-The `model_id` is the alias the skill uses, so changing where it points doesn't touch the
-skill at all.
+Then store that key once: `llm keys set deepseek`.
 
-Two things worth knowing before you do this:
+**Don't want an account with one of these vendors?** Point that panelist at a provider you
+already use. Everything on Ollama Cloud, one key, is a perfectly good panel — you lose a
+model version or two, not the design. The five aliases are five *seats*, not five vendors.
 
-- **Never add `--key` to the fan-out command.** An explicit key outranks every `api_key_name`
-  in the file and silently forces all five models onto one provider. The shipped commands
-  deliberately don't use it.
-- **Effort tiers differ by provider.** Ollama Cloud accepts
-  `none/low/medium/high/max`; DeepSeek's own API accepts `none/minimal/low/medium/high/xhigh/max`.
-  Both honour `max`, which is what the skill sends, but a provider that rejects the field
-  outright will fail the whole call — test one model by hand before wiring it in.
+### How hard each one thinks
 
-Going direct is also a diagnostic: if a panelist is unreliable through a gateway and stable
-on the vendor's own endpoint, the gateway was the problem, not the model.
-
-The same one-line move adds a second search index rather than a second model — store a
-`brave` key and `web_search` starts querying Brave before Ollama's index. Optional; see
-[What the panel can check](#what-the-panel-can-check).
+Effort is stored per model in llm's own config, not passed by the skill:
 
 ```bash
-llm keys set brave    # https://api-dashboard.search.brave.com
+llm models options set glm reasoning_effort max
+llm models options show glm
+python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --set-effort max   # all five at once
 ```
+
+**Tiers differ by provider.** Ollama Cloud accepts `none/low/medium/high/max`; DeepSeek's
+own API also takes `minimal` and `xhigh`. Both honour `max`. A provider that rejects the
+field outright fails the whole call, so test one model by hand after repointing it.
+
+⚠️ **An unset effort is the one failure here that stays quiet.** It doesn't error — the model
+just runs at whatever the server picks, and the answer looks completely normal. The skill
+refuses to start rather than let that happen, and `--set-effort max` clears it in one
+command. This is also why the skill no longer hard-codes `-o reasoning_effort max`: an
+explicit flag outranks every stored default, which would make all of the above unusable.
+
+### Two things worth knowing
+
+- **Never add `--key` to the fan-out command.** It overrides every `api_key_name` at once
+  while leaving each `api_base` alone, so one key gets presented to several providers and
+  the ones that did not issue it answer `401`. The shipped commands deliberately don't use it.
+- **Going direct is also a diagnostic.** If a panelist is unreliable through a gateway and
+  stable on the vendor's own endpoint, the gateway was the problem, not the model.
 
 ## Three things that will bite you
 
@@ -160,9 +190,10 @@ llm keys set brave    # https://api-dashboard.search.brave.com
 
 Five models run concurrently, so wall-clock is whatever the slowest one takes: roughly
 12 seconds for a short question, but **minutes** for a real one with code pasted in at
-max reasoning effort. The skill deliberately sends **no `max_tokens`** and always uses
-`reasoning_effort: max` — a panel exists to get the full argument, and truncating the
-reasoning defeats the point. With repo and web tools in the loop each panelist is capped at 720s and the whole fan-out at
+max reasoning effort. The skill deliberately sends **no `max_tokens`** — a panel exists to get the full argument,
+and truncating the reasoning defeats the point. Reasoning effort is *not* sent by the skill
+either; it comes from each model's own stored default, so you can raise one panelist and
+lower another (see [Configure your own lineup](#configure-your-own-lineup)). With repo and web tools in the loop each panelist is capped at 720s and the whole fan-out at
 800s — the round trips are billed to the same clock, and three overruns at the old 540s cap
 still had 22–25 KB of real answer in them when they were killed.
 
@@ -254,10 +285,10 @@ Worth knowing before you misdiagnose one:
 /plugin update panel
 ```
 
-⚠️ **The two files in `setup/` do not ride along with the plugin** — `llm` owns that config
+⚠️ **The files in `setup/` do not ride along with the plugin** — `llm` owns that config
 directory, not Claude Code. After an update that touches them, re-run the `curl` loop from
-step 2. A missing `panel_tools.py` fails **all five** panelists at once, since `--functions`
-cannot load.
+step 2, then `panel-doctor.py` to confirm. A missing `panel_tools.py` fails **all five**
+panelists at once, since `--functions` cannot load.
 
 ## License
 
