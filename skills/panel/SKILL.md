@@ -113,9 +113,12 @@ printf '%s\n' deepseek-flash nemotron glm kimi minimax \
           timeout 720 llm -m "$m" --functions "$TOOLS" --cl 60 \
             < q.md > "out/$m.md" 2> "out/$m.err"   # --cl is a fuse: too low = narration only
         fi
-        e=$?; [ "$e" -eq 0 ] && [ "$(wc -c < "out/$m.md")" -ge 200 ]
-      }                              # exit 0 with a near-empty file is a failure too: measured,
-                                     # a gateway returned 1 byte and exit 0 twice in 14 calls
+        e=$?; [ "$e" -eq 0 ] && [ "$(wc -c < "out/$m.md")" -ge 3000 ]
+      }                              # exit 0 with too little text is a failure too, and the bar
+                                     # is the UNUSABLE threshold, not the ABSENT one: attendance
+                                     # already scores <3000 as absent, so a floor of 200 forfeits
+                                     # a seat it could have re-drawn — measured, a panelist
+                                     # returned 788 B and exit 0 in 36 s and was never retried
       t0=$(date +%s); try || {       # retry a *fast* failure only. 429s and silent empties come
         [ $(( $(date +%s) - t0 )) -lt 120 ] &&      # back in seconds and the retry is nearly free;
           { cat "out/$m.err" >> "out/$m.try1.err"   # a 720s timeout means it tool-looped past the

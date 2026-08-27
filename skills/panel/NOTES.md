@@ -70,9 +70,12 @@ a failure, and each one fails in a way that does not look like the flag.
   did not issue it answer `401`. Symptom: *some* panelists 401 while others work.
 - **One retry, and only for a failure that came back fast** (under 120 s). Two failure modes
   are cheap to re-draw and cost a whole seat when they aren't: a rate-limit rejection that
-  never reached the model, and **exit 0 with a near-empty file** — the gateway returned 1 byte
+  never reached the model, and **exit 0 with too little text** — the gateway returned 1 byte
   and a clean exit twice in 14 calls, which the old `||` could not see at all, so the seat was
-  scored as present-but-empty. A `timeout` kill is the opposite case: it means the panelist
+  scored as present-but-empty. **The bar is the UNUSABLE threshold (3000), not ABSENT (200)**:
+  attendance already scores anything under 3000 as absent, so a floor of 200 forfeits a seat
+  it could have re-drawn — measured, a panelist returned 788 B and exit 0 in 36 s and the
+  first version of this retry let it through. A `timeout` kill is the opposite case: it means the panelist
   tool-looped past its budget and will do it again, so re-running burns another 720 s to fail
   identically. The first attempt's stderr is kept as `out/<m>.try1.err`; the second attempt
   overwrites `out/<m>.err`, so without that copy a retried seat is indistinguishable from a
