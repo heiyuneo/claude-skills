@@ -122,9 +122,16 @@ done
 sqlite3 "$(llm logs path)" "select model||' finish='||coalesce(json_extract(response_json,'\$.finish_reason'),'null') from turns order by id desc limit 5;"
 ```
 
-**Run this block in the background** (`run_in_background: true`), then wait for it. A single
-foreground Bash call is capped at 600 s — less than one panelist's own `timeout 720` — so a
-foreground run gets killed mid-fan-out with the answers already written but the triage lost.
+**Run this block in the background** (`run_in_background: true`) **and then wait for it to
+finish before you do anything else.** A foreground Bash call is capped at 600 s — shorter
+than one panelist's own `timeout 720` — so running it in the foreground gets killed
+mid-block with the answers on disk but the triage never executed.
+
+**Backgrounding without waiting is worse than the timeout it fixes**: launching and then
+ending your turn abandons the run entirely — measured, on the first attempt at this very
+instruction. The fan-out and the triage loop are one background call on purpose, so its
+completion carries the four-state output. Nothing after this point is yours to start until
+that output is in front of you.
 
 **Every flag in that block was set by a failure — change none of them without reading
 `NOTES.md#fan-out` first.** That covers the four knobs you will reach for when a run goes

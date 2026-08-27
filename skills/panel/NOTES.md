@@ -27,7 +27,12 @@ a failure, and each one fails in a way that does not look like the flag.
   with known arguments: the bare `$1` came back as the caller's second whitespace token, the
   escaped one came back as a literal `$1`, and a ```bash fence changed neither `]`.
   Note the indexing while you are here: `$1` is `$ARGUMENTS[1]`, i.e. the **second** token.
-- **Run the fan-out in the background.** A foreground Bash call is capped at 600 s and
+- **Background, *and then wait*.** The first run under the "put it in the background"
+  instruction abandoned itself: the fork launched the fan-out, had nothing left to do in that
+  turn, and ended — five panelists answered into an archive nobody was reading. Fixing the
+  600 s ceiling introduced a worse failure than the ceiling. Launch and block; the triage
+  loop rides in the same background call so its completion is the signal.
+- **The 600 s ceiling itself.** A foreground Bash call is capped at 600 s and
   `timeout 720` is longer than that, so a foreground run is killed mid-block: the answers are
   already on disk but the triage loop and the log probe never execute. The old instruction
   ("give the Bash call a 800000 timeout") asked for a value above the tool's own maximum and
