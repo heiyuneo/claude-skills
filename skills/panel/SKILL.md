@@ -139,8 +139,8 @@ withdrawn once and rebuilt, and the self-check to run after editing them all liv
 **`--cl 60` is a fuse, not a throttle.** Hitting the chain limit kills the call outright
 (exit 1, zero bytes), so it must sit above real usage. Measured: at the old `--cl 25` two
 panelists burned every call navigating the source and were cut off mid-investigation, and a
-repo-heavy question spends repo calls at roughly thirty times the rate of web searches. A panelist that vanishes after a
-long silence is the first thing to check in the log.
+repo-heavy question spends repo calls at roughly thirty times the rate of web searches. A
+panelist that vanishes after a long silence is the first thing to check in the log.
 
 **Four states, and all four matter:**
 
@@ -335,7 +335,9 @@ names.
 python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --ping
 ```
 
-`llm logs -n 5` shows past calls and every tool call. `check-run.sh` ships beside this file and audits a finished run: which artifacts landed,
+`llm logs -n 5` shows past calls and every tool call.
+
+`check-run.sh` ships beside this file and audits a finished run: which artifacts landed,
 whether `baseline.md` predates the first answer, whether every baseline entry became a matrix
 row, and attendance under the four-state banding. Run it after a panel, not instead of
 reading the answers. Its path depends on how the skill was installed:
