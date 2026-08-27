@@ -86,7 +86,10 @@ mkdir -p "$D/out" && echo "$D"
 ```
 
 `PANEL_REPO` is captured here because the panelists run with their cwd inside the archive.
-Empty → §1 curation is the only route to your code, and that belongs in the summary.
+**Check the line it echoes.** Empty is loud — the tools say there is no repo. Pointing at the
+*wrong* repo is silent: it resolves from your cwd, so reviewing a project you are not
+currently sitting in hands five models somebody else's code. Set it explicitly when they
+differ. Either way, say in the summary which repo was in scope.
 
 **Now write `$D/baseline.md` — your own independent answer, in a few lines — before you
 launch the fan-out.** It works mechanically: a `baseline.md` older than the first file in
@@ -99,14 +102,15 @@ not any panelist raised it.
 Once `$D/q.md` and `$D/baseline.md` are both written:
 
 ```bash
-cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -n1 sh -c 'm=$1       # -n1 not -I{}: BSD -I caps the assembled command line,
-      if [ "$m" = minimax ]; then     # and the fan-out then dies with no panelist called
+cd "$D" && date +%s > .fanout_started   # the instant baseline.md must predate
+printf '%s\n' deepseek-flash nemotron glm kimi minimax \
+  | xargs -P5 -n1 sh -c 'm=\$1      # escaped on purpose: a bare positional is substituted, fences included
+      if [ "$m" = minimax ]; then    # -n1 not -I{}: BSD -I caps the line, fan-out dies uncalled
         timeout 720 llm -m "$m" --cl 60 \
-          < q.md > "out/$m.md" 2> "out/$m.err"
-      else                          # keep "$TOOLS" quoted — it lives under Application Support
+          < q.md > "out/$m.md" 2> "out/$m.err"     # no max_tokens: it truncates honest answers
+      else                           # "$TOOLS" quoted: the path contains a space
         timeout 720 llm -m "$m" --functions "$TOOLS" --cl 60 \
-          < q.md > "out/$m.md" 2> "out/$m.err"
+          < q.md > "out/$m.md" 2> "out/$m.err"     # --cl is a fuse: too low = narration only
       fi || echo "PANELIST FAILED exit=$?" >> "out/$m.err"' _
 for f in out/*.md; do                    # thresholds mirror check-run.sh — see NOTES.md#thresholds
   s=$(wc -c < "$f"); n=$(basename "$f" .md); e=$(cat "out/$n.err")
@@ -118,7 +122,9 @@ done
 sqlite3 "$(llm logs path)" "select model||' finish='||coalesce(json_extract(response_json,'\$.finish_reason'),'null') from turns order by id desc limit 5;"
 ```
 
-**Give the Bash call a 800000 timeout.**
+**Run this block in the background** (`run_in_background: true`), then wait for it. A single
+foreground Bash call is capped at 600 s — less than one panelist's own `timeout 720` — so a
+foreground run gets killed mid-fan-out with the answers already written but the triage lost.
 
 **Every flag in that block was set by a failure — change none of them without reading
 `NOTES.md#fan-out` first.** That covers the four knobs you will reach for when a run goes
@@ -197,6 +203,10 @@ saying where the panel moved you and where it did not.
    nor any panelist thought of is not merely unanswered but *unstatable* here. One sentence
    admitting that boundary; a reader who knows the shape of the hole can go looking.
 
+**A panelist saying it checked something is not the same as it having found something.**
+Tool access is visible in the answer's confidence, not in its accuracy — verify the citations
+that carry your recommendation, however checked they sound.
+
 **Weigh by argument quality and by whether a claim can be falsified against code or a test —
 never by head-count.** These five share a great deal of training data and can be confidently
 wrong together; the lone dissent is frequently correct. Where you can check a claim yourself,
@@ -228,7 +238,8 @@ something *happened*, *is running*, *was deployed* is a claim about world state,
 `verified-static` does not support it — not as a judgement call but as a type error visible
 in the line itself. Two legal moves: **write it down degraded** ("the recipe exists; whether
 it ran is unknown") or go get live evidence. **Degrading is a complete answer** — you are
-never obliged to probe production.
+never obliged to probe production, and **you must not acquire `verified-live` by running
+anything with side effects.** Read-only probes only; a stamp is never worth a mutation.
 
 ### Delivering it
 
@@ -281,7 +292,7 @@ cd "$D"
   done
 } > r2.md
 mkdir -p out2 && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -n1 sh -c 'm=$1
+  | xargs -P5 -n1 sh -c 'm=\$1      # escaped, same reason as the first fan-out
       timeout 360 llm -m "$m" < r2.md > "out2/$m.md" 2> "out2/$m.err" \
         || echo "PANELIST FAILED exit=$?" >> "out2/$m.err"' _
 grep -c "^### Answer" r2.md; wc -c out2/*.md
@@ -314,7 +325,7 @@ reading the answers. Its path depends on how the skill was installed:
 
 ```bash
 CHECK=$(find ~/.claude/skills ~/.claude/plugins/cache -name check-run.sh -path '*panel*' 2>/dev/null | head -1)
-sh "$CHECK" [$D]
+sh "$CHECK" "$D"     # omit "$D" to audit the most recent run
 ```
 
 A run's full trail is `$D` (package, answers, `baseline.md`, `summary.md`) plus llm's SQLite

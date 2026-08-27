@@ -13,6 +13,26 @@ it should not be a rule.
 **Change nothing in that command block without reading this.** Every flag in it was set by
 a failure, and each one fails in a way that does not look like the flag.
 
+- **`\$1`, escaped, and it is not optional.** Claude Code substitutes `$ARGUMENTS`, `$0`,
+  `$1`, `$2` … when it renders a skill into the model's context, **and code fences are not
+  excluded** — only `` ```! `` injection blocks get special treatment. A bare `$1` therefore
+  reaches the executing model already replaced by the caller's first argument, and copying
+  the block runs `llm -m <whatever that was>` for all five. The escape is a single backslash
+  directly before the token; `\\$1` does not work. Discovered the hard way: the block had
+  been unescaped since it was written, and every run that "worked" worked because the fork
+  noticed the breakage and improvised around it — in one case by writing its own `rerun.sh`.
+  **This is also the one failure mode that no panelist can find for you**: they read the file
+  from disk, where the text is intact; only the model being driven by the rendered prompt
+  ever sees the damage. `[verified-live` a throwaway skill containing both forms, invoked
+  with known arguments: the bare `$1` came back as the caller's second whitespace token, the
+  escaped one came back as a literal `$1`, and a ```bash fence changed neither `]`.
+  Note the indexing while you are here: `$1` is `$ARGUMENTS[1]`, i.e. the **second** token.
+- **Run the fan-out in the background.** A foreground Bash call is capped at 600 s and
+  `timeout 720` is longer than that, so a foreground run is killed mid-block: the answers are
+  already on disk but the triage loop and the log probe never execute. The old instruction
+  ("give the Bash call a 800000 timeout") asked for a value above the tool's own maximum and
+  was silently clamped.
+
 - **`-n1 … _`, never `-I{}`.** BSD `xargs -I` caps the length of the command line it
   assembles, and the per-model branch is over the cap. With `-I{}` the whole fan-out dies
   instantly — `xargs: command line cannot be assembled, too long` — and **not one panelist
@@ -72,6 +92,9 @@ a failure, and each one fails in a way that does not look like the flag.
   an immediate retry collides with the panelist's own corpse and returns `429 code 1302`.
   One failure, read as two. Verified in isolation: glm answers a single prompt instantly and
   completes five sequential `web_search` round trips without a single 429.
+  **The `sleep 60` remedy failed once** — a retry run alone, after the pause, still returned
+  `429`. One observation, not enough to rewrite the rule, but enough that a second glm
+  absence should not be read as "the retry was done wrong".
 - **nemotron overruns rather than fails** — both `exit=124` kills still held 22–25 KB.
 - **kimi is the reliable leg** and by far the deepest tool user — 11/11 attendance across the
   measured runs. A `grep_repo` claim it made about this repo checked out to the exact file

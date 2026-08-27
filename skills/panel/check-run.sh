@@ -13,10 +13,17 @@ echo
 # 这么排的：先建包，再写 baseline，再发出去）。所以拿最早那份答案当界。
 if [ -f "$D/baseline.md" ]; then
   b=$(stat -f %m "$D/baseline.md")
-  first=$(for f in "$D"out/*.md; do [ -e "$f" ] && stat -f %m "$f"; done | sort -n | head -1)
-  if [ -z "$first" ]; then echo "⚠️  baseline.md   在，但没有答案可比时序"
-  elif [ "$b" -lt "$first" ]; then echo "✅ baseline.md   早于第一份答案（早 $((first-b))s）"
-  else echo "❌ baseline.md   晚于第一份答案 $((b-first))s —— 已被污染"; fi
+  # 规则的口径是「早于扇出动作」；答案的 mtime 只能证明「早于第一份回答」，中间隔着整个
+  # 网络往返。有 .fanout_started 就用它，那才是规则真正要求的那一刻。
+  if [ -f "$D/.fanout_started" ]; then
+    t=$(cat "$D/.fanout_started"); what="扇出起点"
+  else
+    t=$(for f in "$D"out/*.md; do [ -e "$f" ] && stat -f %m "$f"; done | sort -n | head -1)
+    what="第一份答案（宽口径 —— 扇出块没落 .fanout_started）"
+  fi
+  if [ -z "$t" ]; then echo "⚠️  baseline.md   在，但没有可比的时间点"
+  elif [ "$b" -lt "$t" ]; then echo "✅ baseline.md   早于${what}（早 $((t-b))s）"
+  else echo "❌ baseline.md   晚于${what} $((b-t))s —— 已被污染"; fi
 else echo "❌ baseline.md 缺失"; fi
 
 if [ -f "$D/summary.md" ]; then echo "✅ summary.md    $(wc -c < "$D/summary.md" | tr -d ' ')B"
@@ -24,6 +31,10 @@ else echo "❌ summary.md 缺失 —— fork 写不了盘，调用方没照末�
 
 # baseline 的条目应当逐条变成矩阵里的一行（标 source: baseline）。数不上就是漏填了——
 # 而漏填的恰恰是「五家全没提」的那些行，也就是集体盲区唯一的显影方式。
+if [ -f "$D/baseline.md" ] && [ ! -f "$D/summary.md" ]; then
+  echo "⚠️  未检查「baseline 条目→矩阵行」—— 需要 summary.md，而它要调用方落盘。"
+  echo "    这是全套审计里唯一能显影「五家全没提」的一项，别让它默默不跑。"
+fi
 if [ -f "$D/baseline.md" ] && [ -f "$D/summary.md" ]; then
   # grep -c 无匹配时会打印 0 并返回 1；别再接 `|| echo 0`，那会拼出 "0\n0"
   b=$(grep -cE '^[[:space:]]*[0-9]+[.、)]' "$D/baseline.md" 2>/dev/null); b=${b:-0}
