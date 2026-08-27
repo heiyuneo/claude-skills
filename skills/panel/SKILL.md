@@ -180,6 +180,15 @@ saying where the panel moved you and where it did not.
    blind spot looks like. Measured: five panelists, 155 repo calls between them, **0/5**
    noticed that one system verified signatures on the server and never on the client.
 
+   **Every cell that is not "didn't mention" carries a verbatim fragment of that model's own
+   answer, written `model«…»`** — copied, not paraphrased, long enough to be unique (a dozen
+   characters or so). `check-run.sh` greps each fragment back into `out/<model>.md` and fails
+   the run on any that isn't there. The reader only ever reads the summary, and until this
+   check existed the summary layer's own misquote rate was the one number this design never
+   measured — the panelist layer's was measured at 4/6 fabricated. **A cell you cannot quote
+   is a cell you inferred: write "didn't mention" instead.** For a rejected-on-purpose
+   position, quote the rejection.
+
 2. **Consensus** — where three or more landed in the same place, priced by independence:
 
    - **Check their assumption lists first.** Agreement plus heavily overlapping assumptions

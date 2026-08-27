@@ -44,6 +44,32 @@ if [ -f "$D/baseline.md" ] && [ -f "$D/summary.md" ]; then
   else echo "❌ baseline ${b} 条，矩阵只标了 ${m} 行 —— 少的那些正是「五家全没提」的行"; fi
 fi
 
+# 逐格引用回核：矩阵每个非「didn't mention」格要带 模型«原文片段»，这里拿回原文 grep。
+# 唯一能显影「汇总把话安在谁头上」的一项 —— 用户只读汇总，而汇总层的误引率从没被测过
+# （panelist 层测到过 4/6 编造）。空白差异不算数，两边都压平后再比。
+if [ -f "$D/summary.md" ]; then
+  P=$(mktemp); F=$(mktemp)
+  grep -o '[A-Za-z][A-Za-z0-9_.-]*«[^»]\{6,\}»' "$D/summary.md" > "$P" 2>/dev/null
+  tot=0; bad=0
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    m=${pair%%«*}; q=${pair#*«}; q=${q%»}
+    q=$(printf '%s' "$q" | tr -s '[:space:]' ' ')
+    [ -n "$q" ] || continue
+    tot=$((tot+1))
+    src=$(ls "$D"out/"$m"*.md 2>/dev/null | head -1)
+    if [ -z "$src" ]; then
+      bad=$((bad+1)); printf "  ❌ %-14s 没有这个模型的答案文件\n" "$m"; continue
+    fi
+    tr -s '[:space:]' ' ' < "$src" > "$F"
+    grep -Fq -- "$q" "$F" || { bad=$((bad+1)); printf "  ❌ %-14s «%s…» 原文里找不到\n" "$m" "$(printf '%s' "$q" | cut -c1-40)"; }
+  done < "$P"
+  rm -f "$P" "$F"
+  if   [ "$tot" -eq 0 ]; then echo "⚠️  矩阵零条逐格引用 —— §3.1 要求非「didn't mention」的格都带 模型«原文»"
+  elif [ "$bad" -eq 0 ]; then echo "✅ 逐格引用    ${tot} 条，全部能在原文里找到"
+  else echo "❌ 逐格引用    ${tot} 条，${bad} 条回原文找不到 —— 汇总层误引"; fi
+fi
+
 echo
 echo "出席（阈值：<200 ABSENT / <3000 UNUSABLE，两者都算缺席）"   # 与 SKILL.md §2 同步
 miss=0; n=0
