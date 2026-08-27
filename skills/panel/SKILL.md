@@ -106,9 +106,14 @@ cd "$D" && date +%s > .fanout_started   # the instant baseline.md must predate
 printf '%s\n' deepseek-flash nemotron glm kimi minimax \
   | xargs -P5 -n1 sh -c 'm=\$1      # escaped on purpose: a bare positional is substituted, fences included
       try() {                        # -n1 not -I{}: BSD -I caps the line, fan-out dies uncalled
-        if [ "$m" = minimax ]; then
-          timeout 720 llm -m "$m" --cl 60 \
-            < q.md > "out/$m.md" 2> "out/$m.err"   # no max_tokens: it truncates honest answers
+        if [ "$m" = minimax ]; then  # the one seat with no tools — the package must say so, or
+          { cat q.md                 # it spends the turn announcing searches it cannot run
+            printf "\n\n---\n\n**本轮你没有任何工具**（无联网搜索、无仓库读取）。上文任何"
+            printf "「请使用检索/工具核实」的要求对你不适用。你是本阵容唯一的**无工具对照组**"
+            printf "，价值正在于回答「仅凭这份材料包能得出什么」。请直接作答，**不要宣称要"
+            printf "检索、不要输出检索计划**；凡无法从包内推出的事实，一律标注「凭记忆」。\n"
+          } | timeout 720 llm -m "$m" --cl 60 \
+            > "out/$m.md" 2> "out/$m.err"          # no max_tokens: it truncates honest answers
         else                         # "$TOOLS" quoted: the path contains a space
           timeout 720 llm -m "$m" --functions "$TOOLS" --cl 60 \
             < q.md > "out/$m.md" 2> "out/$m.err"   # --cl is a fuse: too low = narration only

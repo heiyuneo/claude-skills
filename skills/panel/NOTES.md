@@ -106,6 +106,14 @@ a failure, and each one fails in a way that does not look like the flag.
   on a full-size package that spirals until something breaks (three times, each with
   `Error: Extra data: line 1 column NN` as llm parsed streamed tool-call arguments).
   Unencumbered it has twice produced the panel's longest answer.
+  **Its package therefore has to say it has no tools.** The shared package tells all five to
+  verify by search; minimax read that, announced a search three times («让我开始检索»,
+  «[开始搜索]», «让我做几组并行检索»), had nothing to call, and stopped at 788 bytes with
+  exit 0 — scored UNUSABLE, one seat lost, on the one run where the control seat mattered
+  most. The fan-out now appends an override to its copy only. **Nothing to do with effort:
+  a lower tier announces the same search.** Note what this cost beyond a seat — with the
+  control absent there is no way to tell a consensus produced by fact-checking from one
+  produced by the package's own framing.
 - **glm stalls, then 429s on the retry.** Twice: the first attempt returns zero bytes and is
   killed locally, but the abandoned request still holds the account's concurrency slot, so
   an immediate retry collides with the panelist's own corpse and returns `429 code 1302`.
