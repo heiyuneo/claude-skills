@@ -50,11 +50,8 @@ reasoning is the whole point: §3 adjudicates on whose argument holds up.
 >    source) or are asserting it from memory. An unmarked factual claim will be read as
 >    unchecked.
 
-All five read the same package, so their errors are correlated by construction. #1 and #2
-make that correlation visible in §3 instead of scoring it as agreement; #4 hands you a
-verification worklist instead of an undifferentiated wall of assertions. **#3 is the only
-signal that does not pass through you** — when several panelists name the same gap, that is
-a curation defect and it belongs in the summary.
+**#3 is the only signal that does not pass through you** — when several panelists name the
+same gap, that is a curation defect and it belongs in the summary.
 
 **Never state a preference** ("I'm leaning toward option A"). With one reviewer, naming your
 leaning provokes a rebuttal; with a panel it anchors all five at once.
@@ -93,8 +90,7 @@ mkdir -p "$D/out" && echo "$D"
 ```
 
 `PANEL_REPO` is captured here because the panelists run with their cwd inside the archive.
-If it comes back empty the repo tools say so plainly, §1 curation is again the only route to
-your code, and that belongs in the summary.
+Empty → §1 curation is the only route to your code, and that belongs in the summary.
 
 **Never add `-o reasoning_effort` back to the fan-out.** An explicit `-o` outranks every
 stored default, which would make the whole per-model configuration unusable. The preflight
@@ -108,17 +104,17 @@ only an assertion. Do not skip it because you feel unbiased.
 
 **End it with a numbered list: the sharpest points you believe this question turns on, at
 most five, one line each.** §3 turns each entry into a row of the position matrix whether or
-not any panelist raised it, and prose cannot be checked against anything mechanically.
+not any panelist raised it.
 
 Once `$D/q.md` and `$D/baseline.md` are both written:
 
 ```bash
 cd "$D" && printf '%s\n' deepseek-flash nemotron glm kimi minimax \
-  | xargs -P5 -n1 sh -c 'm=$1
-      if [ "$m" = minimax ]; then                 # deliberate: minimax spirals on tool calls
+  | xargs -P5 -n1 sh -c 'm=$1       # -n1 not -I{}: BSD -I caps the assembled command line,
+      if [ "$m" = minimax ]; then     # and the fan-out then dies with no panelist called
         timeout 720 llm -m "$m" --cl 60 \
           < q.md > "out/$m.md" 2> "out/$m.err"
-      else
+      else                          # keep "$TOOLS" quoted — it lives under Application Support
         timeout 720 llm -m "$m" --functions "$TOOLS" --cl 60 \
           < q.md > "out/$m.md" 2> "out/$m.err"
       fi || echo "PANELIST FAILED exit=$?" >> "out/$m.err"' _
@@ -132,27 +128,13 @@ done
 sqlite3 "$(llm logs path)" "select model||' finish='||coalesce(json_extract(response_json,'\$.finish_reason'),'null') from turns order by id desc limit 5;"
 ```
 
-All five run concurrently, so wall-clock is the slowest survivor, capped at twelve minutes.
 **Give the Bash call a 800000 timeout.**
 
-**`-n1 … _`, not `-I{}`** — BSD `xargs -I` caps the assembled command line, and the
-per-model branch is over it: the whole fan-out then dies instantly with `command line cannot
-be assembled` and not one panelist is called. **Keep `"$TOOLS"` quoted** — llm's config
-directory is under `Application Support`, and an unquoted expansion splits the path in two.
-
-**The panel checks both worlds.** `--functions` gives every panelist except minimax five
-tools from `panel_tools.py`:
-
-- `web_search` / `web_fetch` — the outside world, across the search backends configured in
-  `panel-search.json`. Panelists who cannot check anything invent instead.
-- `list_files` / `read_file` / `grep_repo` — your repository, scoped to `PANEL_REPO` and
-  limited to what `git ls-files` reports. That listing *is* the access rule, so untracked
-  paths are out of reach by construction rather than by pattern.
-
-Tool access removes the excuse, not the risk — §3 still adjudicates. Run
-`python3 "$(dirname "$(llm logs path)")/panel_tools.py"` after touching that file: its
-self-check covers the false-negative regression that got these tools withdrawn once, and the
-full history lives in its module docstring.
+`--functions` gives every panelist except minimax two web tools and three repo tools, the
+latter scoped to `PANEL_REPO` and to what `git ls-files` reports. **Tool access removes the
+excuse, not the risk** — §3 still adjudicates. What each tool does, why the repo three were
+withdrawn once and rebuilt, and the self-check to run after editing them all live in
+`panel_tools.py`'s module docstring.
 
 **`--cl 60` is a fuse, not a throttle.** Hitting the chain limit kills the call outright
 (exit 1, zero bytes), so it must sit above real usage. Measured: at the old `--cl 25` two
@@ -169,26 +151,11 @@ long silence is the first thing to check in the log.
   re-run trigger and confidence — with one exception, in §3.4.
 - **TRUNCATED** — `.err` non-empty (usually `exit=124`), **or the log says `finish=length`**,
   which the byte check cannot see at all because a runaway answer is *large*. It has content
-  but probably no conclusion: use its reasoning, never score its silence as "didn't mention",
-  mark its row.
+  but probably no conclusion (nemotron's two kills each still held 22–25 KB of real answer):
+  use its reasoning, never score its silence as "didn't mention", mark its row.
 - **ok** — the only state you may treat as complete, and the bands are a first pass, not the
   verdict. Measured: a 3326-byte file passed as `ok` containing only a panelist narrating its
   own tool calls. **Open every file before you trust its label.**
-
-**Known failure modes** (55 calls, three providers — do not diagnose these as "the gateway is
-down"):
-
-- **minimax runs without tools.** Not because tool calls break it — single searches succeed
-  at every effort tier in seconds — but because it **fails to converge**: asked to check four
-  facts it re-ran near-identical queries, and on a full-size package that spirals until
-  something breaks (three times). Unencumbered it has twice produced the panel's longest
-  answer, and it is the only panelist reasoning purely from the package — the natural control
-  against the tool-using four.
-- **nemotron overruns rather than fails** — both `exit=124` kills still held 22–25 KB.
-- **kimi is the reliable leg** and by far the deepest tool user. When exactly one answer comes
-  back rich in checked external facts, expect it to be this one — and do not mistake that for
-  independent corroboration.
-- **glm stalls, then 429s on an immediate retry** — see the re-run rule below.
 
 **Two settings are welded shut:**
 
@@ -232,6 +199,11 @@ saying where the panel moved you and where it did not.
      restatement, not corroboration — label it, even when unanimous. Agreement where they
      **contradict** the package is the most independent signal available. A 3/3 consensus can
      be worth less than a 3/3 dissent; printing both under one heading misleads.
+   - **Two panelists are not interchangeable votes.** An answer rich in checked external
+     facts is usually just kimi, the deepest tool user — thoroughness, not corroboration.
+     minimax runs without tools, so it is the control: agreement with it means the package
+     alone sufficed; a lone dissent from it asks whether the tools changed anyone's mind or
+     only gave them more to cite.
 
 3. **Disagreements** — the actual contention, each side's reasoning, then your adjudication
    and the evidence for it.
@@ -289,15 +261,12 @@ nothing to object to.
 ### Delivering it
 
 **Deliver the whole summary as the text of your answer, in full** — never a digest of itself
-with the detail left in a file. The step that compresses 80 KB of argument into five headings
-is the one that most needs to survive.
+with the detail left in a file.
 
 **Do not try to `Write` it to `$D/summary.md` yourself.** This skill runs in a fork, and a
 subagent writing a file named `summary.md` is refused at the tool layer — *"Subagents should
-return findings as text, not write report files."* Across twelve runs that was the sole
-reason no summary ever reached disk, and every earlier fix strengthened the wording instead
-of noticing the instruction was addressed to the wrong process. So end your answer with this
-line and let the caller do it:
+return findings as text, not write report files."* That silently cost twelve runs their
+summary. End your answer with this line and let the caller do it:
 
 > Please write this summary verbatim to `$D/summary.md` — the fork cannot write it itself.
 > 请把以上汇总全文原样写入 `$D/summary.md`（fork 无法自己落盘）。
@@ -357,19 +326,16 @@ up alongside the consensus.
 
 ## Troubleshooting
 
+**Anything failing before the answers come back → run the doctor.** It probes all five
+concurrently and names the fix rather than the symptom: unstored keys, unset effort, a
+missing `panel_tools.py`, a proxy that can't reach the gateway, rate limits, drifted model
+names.
+
 ```bash
-NO_PROXY='ollama.com' llm -m glm "Introduce yourself in one sentence."   # key+endpoint+model
-llm models | grep -E "deepseek-flash|nemotron|glm|kimi|minimax"          # aliases registered?
-python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --ping           # endpoints, keys, effort
-llm logs -n 5                                                            # past calls + tool calls
+python3 "$(dirname "$(llm logs path)")/panel-doctor.py" --ping
 ```
 
-- All five 401 → the key alias isn't stored (`llm keys set …`) or was rotated.
-- All five `Connection error` → `NO_PROXY='ollama.com'` is missing.
-- All five fail instantly → `panel_tools.py` is missing from llm's config directory.
-- One panelist refuses to start → its `reasoning_effort` default is unset; run the doctor.
-
-`check-run.sh` ships beside this file and audits a finished run: which artifacts landed,
+`llm logs -n 5` shows past calls and every tool call. `check-run.sh` ships beside this file and audits a finished run: which artifacts landed,
 whether `baseline.md` predates the first answer, whether every baseline entry became a matrix
 row, and attendance under the four-state banding. Run it after a panel, not instead of
 reading the answers. Its path depends on how the skill was installed:

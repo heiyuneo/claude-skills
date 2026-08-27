@@ -21,6 +21,7 @@ pulling in PyYAML for eight keys.
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import pathlib
@@ -82,14 +83,29 @@ def _effort(alias):
 
 
 def _ping(alias):
+    """Probe one model. Never raises — a doctor that crashes on a sick patient is useless."""
     env = {**os.environ, "NO_PROXY": "ollama.com"}
-    out = subprocess.run(["llm", "-m", alias, "Reply with one word: ok"],
-                         capture_output=True, text=True, timeout=120, env=env)
+    try:
+        out = subprocess.run(["llm", "-m", alias, "-o", "reasoning_effort", "low",
+                              "Reply with one word: ok"],
+                             capture_output=True, text=True, timeout=90, env=env)
+    except subprocess.TimeoutExpired:
+        return "timeout", "no answer in 90s at low effort — provider stalled"
+    except Exception as e:                     # noqa: BLE001 — report anything, crash on nothing
+        return "failed", f"{type(e).__name__}: {e}"[:90]
     if out.returncode == 0 and out.stdout.strip():
         return "ok", ""
     err = (out.stderr or "").strip().replace("\n", " ")
+    if "Connection error" in err or "connect" in err.lower():
+        return "unreachable", "network/proxy — prefix commands with NO_PROXY='ollama.com'"
     m = re.search(r"Error code: (\d+)", err)
-    return ("HTTP " + m.group(1) if m else "failed"), err[:90]
+    code = m.group(1) if m else None
+    hint = {"401": "key rejected — llm keys set <alias> again, or it was rotated",
+            "429": "rate limited — if this is a retry, wait 60s and retry alone",
+            "404": "model name drifted — curl -s https://ollama.com/v1/models | jq -r '.data[].id'",
+            "503": "provider overloaded — transient, retry",
+            }.get(code, "")
+    return ("HTTP " + code if code else "failed"), hint or err[:90]
 
 
 def main():
@@ -127,11 +143,17 @@ def main():
         if not eff:
             missing_effort.append(alias)
         host = re.sub(r"^https?://", "", m.get("api_base", "?")).split("/")[0]
-        reach, detail = ("", "")
-        if args.ping:
-            reach, detail = _ping(alias) if have else ("skipped", "no key")
-        rows.append((alias, m.get("model_name", "?"), host, kname,
-                     "yes" if have else "NO", eff or "unset", reach, detail))
+        rows.append([alias, m.get("model_name", "?"), host, kname,
+                     "yes" if have else "NO", eff or "unset", "", ""])
+
+    if args.ping:                              # concurrently — five sequential probes is a wait
+        todo = {i: r[0] for i, r in enumerate(rows) if r[4] == "yes"}
+        for i, r in enumerate(rows):
+            if i not in todo:
+                r[6], r[7] = "skipped", "no key"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as ex:
+            for i, res in zip(todo, ex.map(_ping, todo.values())):
+                rows[i][6], rows[i][7] = res
 
     w = [max(len(str(r[i])) for r in rows + [("alias", "model", "endpoint", "key alias",
                                               "stored", "effort", "reachable", "")])
