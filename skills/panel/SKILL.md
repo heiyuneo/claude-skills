@@ -105,13 +105,22 @@ Once `$D/q.md` and `$D/baseline.md` are both written:
 cd "$D" && date +%s > .fanout_started   # the instant baseline.md must predate
 printf '%s\n' deepseek-flash nemotron glm kimi minimax \
   | xargs -P5 -n1 sh -c 'm=\$1      # escaped on purpose: a bare positional is substituted, fences included
-      if [ "$m" = minimax ]; then    # -n1 not -I{}: BSD -I caps the line, fan-out dies uncalled
-        timeout 720 llm -m "$m" --cl 60 \
-          < q.md > "out/$m.md" 2> "out/$m.err"     # no max_tokens: it truncates honest answers
-      else                           # "$TOOLS" quoted: the path contains a space
-        timeout 720 llm -m "$m" --functions "$TOOLS" --cl 60 \
-          < q.md > "out/$m.md" 2> "out/$m.err"     # --cl is a fuse: too low = narration only
-      fi || echo "PANELIST FAILED exit=$?" >> "out/$m.err"' _
+      try() {                        # -n1 not -I{}: BSD -I caps the line, fan-out dies uncalled
+        if [ "$m" = minimax ]; then
+          timeout 720 llm -m "$m" --cl 60 \
+            < q.md > "out/$m.md" 2> "out/$m.err"   # no max_tokens: it truncates honest answers
+        else                         # "$TOOLS" quoted: the path contains a space
+          timeout 720 llm -m "$m" --functions "$TOOLS" --cl 60 \
+            < q.md > "out/$m.md" 2> "out/$m.err"   # --cl is a fuse: too low = narration only
+        fi
+        e=$?; [ "$e" -eq 0 ] && [ "$(wc -c < "out/$m.md")" -ge 200 ]
+      }                              # exit 0 with a near-empty file is a failure too: measured,
+                                     # a gateway returned 1 byte and exit 0 twice in 14 calls
+      t0=$(date +%s); try || {       # retry a *fast* failure only. 429s and silent empties come
+        [ $(( $(date +%s) - t0 )) -lt 120 ] &&      # back in seconds and the retry is nearly free;
+          { cat "out/$m.err" >> "out/$m.try1.err"   # a 720s timeout means it tool-looped past the
+            sleep 30; try; }                        # budget and will do it again — do not re-burn
+      } || echo "PANELIST FAILED exit=$e" >> "out/$m.err"' _
 for f in out/*.md; do                    # thresholds mirror check-run.sh — see NOTES.md#thresholds
   s=$(wc -c < "$f"); n=$(basename "$f" .md); e=$(cat "out/$n.err")
   if   [ "$s" -lt 200 ];  then echo "ABSENT     $n (${s}B) $e"

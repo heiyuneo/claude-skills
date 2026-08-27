@@ -80,6 +80,10 @@ for f in "$D"out/*.md; do
   elif [ "$s" -lt 3000 ]; then t="UNUSABLE"; miss=$((miss+1))
   elif [ -n "$e" ];       then t="TRUNCATED"
   else                         t="ok"; fi
+  # 第一次尝试失败会把错误存进 try1.err（成功的第二次会覆盖掉 .err）——不标出来就无从知道
+  # 这家是一把过还是靠重试捡回来的，而"总要重试"本身就是该换路由的信号。分档只看 .err，
+  # 重试痕迹只进展示：靠重试拿到的完整答案是 ok，不是 TRUNCATED。
+  [ -f "$D"out/"$m".try1.err ] && e="[重试1次] $(cat "$D"out/"$m".try1.err 2>/dev/null) $e"
   printf "  %-10s %-16s %8sB  %s\n" "$t" "$m" "$s" "$(echo "$e" | tr '\n' ' ' | cut -c1-56)"
 done
 echo

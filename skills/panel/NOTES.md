@@ -68,6 +68,17 @@ a failure, and each one fails in a way that does not look like the flag.
 - **No `--key` on the command line.** It overrides every `api_key_name` at once while
   leaving each `api_base` alone, so one key is presented to three providers and the two that
   did not issue it answer `401`. Symptom: *some* panelists 401 while others work.
+- **One retry, and only for a failure that came back fast** (under 120 s). Two failure modes
+  are cheap to re-draw and cost a whole seat when they aren't: a rate-limit rejection that
+  never reached the model, and **exit 0 with a near-empty file** — the gateway returned 1 byte
+  and a clean exit twice in 14 calls, which the old `||` could not see at all, so the seat was
+  scored as present-but-empty. A `timeout` kill is the opposite case: it means the panelist
+  tool-looped past its budget and will do it again, so re-running burns another 720 s to fail
+  identically. The first attempt's stderr is kept as `out/<m>.try1.err`; the second attempt
+  overwrites `out/<m>.err`, so without that copy a retried seat is indistinguishable from a
+  clean one, and "this one always needs a retry" is exactly the signal that its route should
+  change. **The retry is not the fix for glm** — see per-panelist; a stronger version of it
+  (`sleep 60`) has already been measured failing there.
 
 ## thresholds
 
@@ -100,6 +111,16 @@ a failure, and each one fails in a way that does not look like the flag.
   **The `sleep 60` remedy failed once** — a retry run alone, after the pause, still returned
   `429`. One observation, not enough to rewrite the rule, but enough that a second glm
   absence should not be read as "the retry was done wrong".
+  **So the entry point is the stall, not the 429** — the three `429`s in runs `20260826-121859`
+  / `161300` / `20260827-103114` (`exit=1`, zero bytes, no `turns` row in llm's SQLite: the
+  request never reached the model) are the wake of an earlier timeout, not independent
+  faults. Retrying attacks the wake; only finishing inside the budget attacks the cause.
+  **glm therefore runs at `reasoning_effort high`, alone among the five** — set
+  2026-08-27, `llm models options set glm reasoning_effort high`. This is a real exception to
+  "always max", taken on the ground that **an absent panelist contributes zero argument**:
+  the rule buys reasoning depth, and glm at max was buying none. Revisit if a run at `high`
+  still stalls — the next lever is dropping its tools (as minimax already runs), because both
+  glm timeouts spent the whole 720 s on tool-call narration and never reached a conclusion.
 - **nemotron overruns rather than fails** — both `exit=124` kills still held 22–25 KB.
 - **kimi is the reliable leg** and by far the deepest tool user — 11/11 attendance across the
   measured runs. A `grep_repo` claim it made about this repo checked out to the exact file
