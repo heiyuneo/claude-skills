@@ -1,6 +1,8 @@
 #!/bin/sh
 # 验收一次 panel 跑：产物是否齐、baseline 时序是否可证、五家出席情况。
 # 用法：sh ~/.claude/skills/panel/check-run.sh [归档目录]   （省略则取最近一次）
+# ⚠️ 归档目录是全机共享的（~/.claude/panel-runs/），不按项目或会话分。多个线程/会话并行时
+#    「最近一次」很可能是别人的跑。**永远显式传 $D**，省略只在你确定只有你一个人在跑时才安全。
 D="${1:-$(ls -dt ~/.claude/panel-runs/*/ 2>/dev/null | head -1)}"
 case "$D" in */) ;; *) D="$D/";; esac
 [ -d "$D" ] || { echo "找不到归档目录"; exit 1; }
