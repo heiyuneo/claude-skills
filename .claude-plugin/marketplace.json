@@ -5,14 +5,14 @@
   },
   "metadata": {
     "description": "Claude Code skills by heiyu",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "panel",
       "source": "./",
-      "description": "Panel review by five non-Claude models. Fans one high-stakes question out to deepseek-flash / nemotron / glm / kimi / minimax in parallel at max reasoning effort — each on its own configurable endpoint and key — with tools to read your repository and check the live web, then reconciles the answers into a position matrix, consensus graded by how independent it actually is, adjudicated disagreements, lone insights, and an explicit not-covered-not-verified section. Requires the llm CLI and your own API key — see README.",
-      "version": "0.2.0",
+      "description": "Panel review by five non-Claude models. Fans one high-stakes question out to deepseek-flash / nemotron / glm / kimi / minimax in parallel at full reasoning effort — each on its own configurable endpoint and key — with tools to read your repository and check the live web, then reconciles the answers into a position matrix, consensus graded by how independent it actually is, adjudicated disagreements, lone insights, and an explicit not-covered-not-verified section. Requires the llm CLI and your own API key — see README.",
+      "version": "0.3.0",
       "author": {
         "name": "heiyu"
       },

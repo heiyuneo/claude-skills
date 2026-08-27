@@ -31,6 +31,14 @@ import sys
 
 FIELDS = ("model_id", "model_name", "api_base", "api_key_name")
 
+# Panelists a blanket --set-effort must not push to the top tier.
+# glm stalls past the fan-out's 720 s budget at max and gets killed locally, but the
+# abandoned request still holds Zhipu's concurrency slot, so the *next* run opens with a
+# 429 and that seat is lost before it starts. An absent panelist argues nothing, which is
+# why the cap beats the depth. Name it explicitly to override: --set-effort max --only glm
+EFFORT_CAP = {"glm": "high"}
+TOP_TIERS = ("max", "xhigh")
+
 
 def _cfg_dir() -> pathlib.Path:
     out = subprocess.run(["llm", "logs", "path"], capture_output=True, text=True)
@@ -125,8 +133,14 @@ def main():
         if not targets:
             sys.exit(f"No panelist called {args.only!r} in extra-openai-models.yaml")
         for m in targets:
-            subprocess.run(["llm", "models", "options", "set", m["model_id"],
-                            "reasoning_effort", args.set_effort], check=False)
+            alias, tier = m["model_id"], args.set_effort
+            if not args.only and alias in EFFORT_CAP and tier in TOP_TIERS:
+                tier = EFFORT_CAP[alias]
+                print(f"{alias}: capped at {tier} — it stalls at {args.set_effort} and the "
+                      f"dead request costs the *next* run its seat (see README). "
+                      f"Override: --set-effort {args.set_effort} --only {alias}", flush=True)
+            subprocess.run(["llm", "models", "options", "set", alias,
+                            "reasoning_effort", tier], check=False)
         print()
 
     keys = _stored_keys()

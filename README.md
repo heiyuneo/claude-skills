@@ -219,7 +219,7 @@ not that any index is more trustworthy than another.
 - **Going direct is also a diagnostic.** If a panelist is unreliable through a gateway and
   stable on the vendor's own endpoint, the gateway was the problem, not the model.
 
-## Three things that will bite you
+## Four things that will bite you
 
 1. **No key ships in this repo, and none ever should.** Everyone uses their own key on
    their own account.
@@ -228,6 +228,12 @@ not that any index is more trustworthy than another.
    machine with no proxy, so leave it in. Drop it behind a proxy that can't reach
    `ollama.com` and every call dies with `Connection error`.
 
+   Worth knowing *why* it works, because it will mislead you when you debug by hand:
+   Python reads the macOS system proxy **only when no `*_proxy` variable is set at all**, and
+   `NO_PROXY` lowercases to `no_proxy`, which ends in `_proxy` and counts. So setting it
+   skips the system proxy entirely, whatever hostname you put in it. "Works with `NO_PROXY`,
+   `Connection error` without" is never a rate limit and never about that hostname.
+
 3. **Model names drift.** `setup/extra-openai-models.yaml` pins specific versions
    (`glm-5.3`, `kimi-k3`, …). When you get a "model not found", check what's
    live and edit the file:
@@ -235,6 +241,12 @@ not that any index is more trustworthy than another.
    ```bash
    curl -s https://ollama.com/v1/models | jq -r '.data[].id'
    ```
+
+4. **`~/.claude/panel-runs/` is machine-wide**, not per project and not per session. Run
+   `check-run.sh` with no argument and it checks the *most recent* run — with two sessions
+   going, that is somebody else's, reported as yours. Pass the archive directory explicitly.
+   The same goes for effort, keys and the lineup: they live in `llm`'s config, so changing
+   one changes it for every project on the machine.
 
 ## Cost and latency
 
@@ -316,8 +328,8 @@ Worth knowing before you misdiagnose one:
 | `kimi` | The reliable leg, and the deepest tool user of the five. A `grep_repo` claim it made about this repo checked out to the exact file and line, and it labelled its own answers `checked` and `second-hand, not chased` without being asked |
 | `deepseek-flash` | Occasionally runs away into the endpoint's own token ceiling; the per-panelist timeout catches it |
 | `nemotron` | Doesn't fail, overruns — both times it was killed the file still held 22–25 KB of real answer |
-| `minimax` | **Runs with tools off.** It died on full-size packages three times, but "breaks on tool calls" is not the diagnosis — single searches succeed at every effort tier in seconds. What reproduces is **non-convergence**: asked to check four facts it re-ran near-identical queries instead of using what it already had. Unencumbered it has twice produced the panel's longest answer, and it is the only panelist reasoning purely from the package — the natural control against the tool-using four |
-| `glm` | Its first request occasionally stalls at zero bytes, and retrying *immediately* then hits `429` — the abandoned request still holds the account's concurrency slot. The skill waits before re-running a straggler |
+| `minimax` | **Runs with tools off.** It died on full-size packages three times, but "breaks on tool calls" is not the diagnosis — single searches succeed at every effort tier in seconds. What reproduces is **non-convergence**: asked to check four facts it re-ran near-identical queries instead of using what it already had. Unencumbered it has twice produced the panel's longest answer, and it is the only panelist reasoning purely from the package — the natural control against the tool-using four. Its copy of the package now says it has no tools: the shared text asks everyone to verify by search, and it spent a whole turn announcing searches it could not run, stopping at 788 bytes with exit 0 |
+| `glm` | **Runs at `high`, alone among the five, and that is deliberate.** At `max` it stalls past the 720 s budget and is killed locally — but the abandoned request still holds Zhipu's concurrency slot, so the *next* run opens with `429`, zero bytes, no row in `llm logs`: the request never reached the model. It lost 5 of 7 runs that way. **The entry point is the stall, not the 429**, so retrying is the wrong lever — finishing inside the budget is the right one. An absent panelist argues nothing, which is what the top tier was supposed to buy |
 
 ## Updating
 
@@ -330,6 +342,36 @@ Worth knowing before you misdiagnose one:
 directory, not Claude Code. After an update that touches them, re-run the `curl` loop from
 step 2, then `panel-doctor.py` to confirm. A missing `panel_tools.py` fails **all five**
 panelists at once, since `--functions` cannot load.
+
+### 0.3.0 — two commands after you update
+
+This release changes `setup/panel-doctor.py`, so the plugin update alone is not enough:
+
+```bash
+CFG="$(dirname "$(llm logs path)")"
+curl -fsSL "https://raw.githubusercontent.com/heiyuneo/claude-skills/main/setup/panel-doctor.py" -o "$CFG/panel-doctor.py"
+python3 "$CFG/panel-doctor.py" --set-effort max      # glm is capped at high on purpose — it says so
+```
+
+Your keys, endpoints and lineup are untouched. What changed:
+
+- **glm drops to `high`.** At `max` it stalled past the fan-out budget, and the killed
+  request still held the provider's concurrency slot, so the *next* run opened with `429` —
+  5 of 7 runs lost that way. `--set-effort max` now caps it and prints why; add
+  `--only glm` if you want the top tier anyway. See its row under *Known temperament*.
+- **Every matrix cell carries a verbatim quote, and the checker greps each one back into
+  that model's answer file.** You only ever read the summary, so the summary layer's own
+  misquote rate was the one number this design never measured — the panelist layer's was
+  measured at 4/6 fabricated. First real run: 51 quotes, all found, and corrupting two in a
+  copy fails the check, so the pass means something.
+- **A fast failure is retried once.** A rate-limit rejection, or `exit 0` with too little
+  text to use, comes back in seconds and otherwise costs a whole seat. A `timeout` kill is
+  deliberately *not* retried: it means that panelist tool-looped past its budget and would
+  do it again.
+- **minimax is told it has no tools**, since it is the one seat launched without them.
+
+If you keep your own fork of `check-run.sh`, note it now takes the archive directory as an
+argument in practice — see bite #4.
 
 ## License
 
