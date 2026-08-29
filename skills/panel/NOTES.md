@@ -83,6 +83,24 @@ a failure, and each one fails in a way that does not look like the flag.
   change. **The retry is not the fix for glm** — see per-panelist; a stronger version of it
   (`sleep 60`) has already been measured failing there.
 
+## still running vs abandoned
+
+They look identical from outside, and someone has already called a live run dead because of
+it. A panelist deep in a tool loop writes **zero bytes** — the file exists, the answers that
+did finish sit unchanged, and nothing moves for a quarter of an hour. Measured
+(`20260830-032048`): three answers landed by 03:33, and glm and nemotron were still being
+re-run at 03:37 and 03:49; a watcher gave up at the 16-minute mark and read the three by hand.
+
+So the fan-out writes `.fanout_done` and `check-run.sh` reports elapsed against the budget.
+**Never infer death from an unchanged archive** — infer it from the elapsed time, and only
+past ~1500 s, which is one 720 s attempt plus the pause plus one retry.
+
+That run also shows what an off-script fan-out looks like in the archive, worth recognising:
+the two stragglers were re-run **one at a time, 12.5 minutes apart** — one full timeout each,
+serial, with no `try1.err`. The block retries in parallel, only on a fast failure, and always
+leaves `try1.err`. Serial re-runs at exactly one budget apart mean the block was not copied
+verbatim, which is the failure this file has warned about from the beginning.
+
 ## thresholds
 
 **200 / 3000 bytes.** Mirrored in the fan-out block and in `check-run.sh` — change both.

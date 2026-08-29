@@ -7,6 +7,21 @@ D="${1:-$(ls -dt ~/.claude/panel-runs/*/ 2>/dev/null | head -1)}"
 case "$D" in */) ;; *) D="$D/";; esac
 [ -d "$D" ] || { echo "找不到归档目录"; exit 1; }
 echo "归档: $D"
+
+# 「还在跑」和「已经死了」从外面长得一模一样：慢的那家在工具循环里只发工具调用，落盘 0 字节，
+# 三份写完的答卷躺着不动 —— 实测有人据此判定整场被遗弃，而它当时还在跑。先把这条说清楚。
+if [ -f "$D/.fanout_done" ] && [ -f "$D/.fanout_started" ]; then
+  echo "✅ 扇出已完成    用时 $(( ($(cat "$D/.fanout_done") - $(cat "$D/.fanout_started")) / 60 )) 分钟"
+elif [ -f "$D/.fanout_started" ]; then
+  el=$(( $(date +%s) - $(cat "$D/.fanout_started") ))
+  if   [ -f "$D/summary.md" ]; then :   # 出了汇总就是跑完了，标记是本版才加的，旧归档没有
+  elif [ "$el" -gt 3600 ]; then echo "ℹ️  无完成标记，但已过 $((el/3600)) 小时 —— 旧归档（本版之前的跑不写标记）"
+  else
+    echo "⏳ 扇出未标记完成 —— 已 $((el/60))分$((el%60))秒。单家上限 720s，带一次重试最长约 1470s(24分)。"
+    [ "$el" -lt 1500 ] && echo "   还在预算内，**别当成挂了**；下面的出席是中途快照。" \
+                       || echo "   已超预算 —— 要么 fork 没照抄扇出块(自己串行补跑)，要么整场被遗弃。"
+  fi
+fi
 echo
 
 [ -f "$D/q.md" ] && echo "✅ q.md          $(wc -c < "$D/q.md" | tr -d ' ')B" || echo "❌ q.md 缺失"

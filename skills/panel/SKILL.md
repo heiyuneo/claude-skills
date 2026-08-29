@@ -129,6 +129,10 @@ printf '%s\n' deepseek-flash nemotron glm kimi minimax \
           { cat "out/$m.err" >> "out/$m.try1.err"   # a 720s timeout means it tool-looped past the
             sleep 30; try; }                        # budget and will do it again — do not re-burn
       } || echo "PANELIST FAILED exit=$e" >> "out/$m.err"' _
+date +%s > .fanout_done                  # the only signal that separates "still running" from
+                                         # "abandoned" — without it a slow panelist and a dead
+                                         # fan-out look identical from outside, and a watcher
+                                         # gives up on a run that was still working
 for f in out/*.md; do                    # thresholds mirror check-run.sh — see NOTES.md#thresholds
   s=$(wc -c < "$f"); n=$(basename "$f" .md); e=$(cat "out/$n.err")
   if   [ "$s" -lt 200 ];  then echo "ABSENT     $n (${s}B) $e"
