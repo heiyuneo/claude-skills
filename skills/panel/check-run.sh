@@ -44,12 +44,12 @@ if [ -f "$D/baseline.md" ]; then
 else echo "❌ baseline.md 缺失"; fi
 
 if [ -f "$D/summary.md" ]; then echo "✅ summary.md    $(wc -c < "$D/summary.md" | tr -d ' ')B"
-else echo "❌ summary.md 缺失 —— fork 写不了盘，调用方没照末尾那句落盘"; fi
+else echo "❌ summary.md 缺失 —— §3「Delivering it」要求 fork 自己用 Bash heredoc 落盘（Write 会被拦）"; fi
 
 # baseline 的条目应当逐条变成矩阵里的一行（标 source: baseline）。数不上就是漏填了——
 # 而漏填的恰恰是「五家全没提」的那些行，也就是集体盲区唯一的显影方式。
 if [ -f "$D/baseline.md" ] && [ ! -f "$D/summary.md" ]; then
-  echo "⚠️  未检查「baseline 条目→矩阵行」—— 需要 summary.md，而它要调用方落盘。"
+  echo "⚠️  未检查「baseline 条目→矩阵行」和「逐格引用回核」—— 两项都要 summary.md。"
   echo "    这是全套审计里唯一能显影「五家全没提」的一项，别让它默默不跑。"
 fi
 if [ -f "$D/baseline.md" ] && [ -f "$D/summary.md" ]; then
